@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Claude Code Ralph Loop with Rate Limiting and Documentation
-# Adaptation of the Ralph technique for Claude Code with usage management
+# Codex CLI Ralph Loop with Rate Limiting and Documentation
+# Adaptation of the Ralph technique for Codex CLI with usage management
 
 set -e  # Exit on any error
 
@@ -27,7 +27,7 @@ STATUS_FILE="$RALPH_DIR/status.json"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
 CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-codex}"
 SLEEP_DURATION=3600     # 1 hour in seconds
-LIVE_OUTPUT=false       # Show Claude Code output in real-time (streaming)
+LIVE_OUTPUT=false       # Show Codex CLI output in real-time (streaming)
 LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
@@ -50,7 +50,7 @@ MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
 CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
 
-# Modern Claude CLI configuration (Phase 1.1)
+# Modern Codex CLI configuration (Phase 1.1)
 CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
 CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)}"
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
@@ -208,10 +208,10 @@ setup_tmux_session() {
     # Split window vertically (right side)
     tmux split-window -h -t "$session_name" -c "$project_dir"
 
-    # Split right pane horizontally (top: Claude output, bottom: status)
+    # Split right pane horizontally (top: Codex output, bottom: status)
     tmux split-window -v -t "$session_name:${base_win}.1" -c "$project_dir"
 
-    # Right-top pane (pane 1): Live Claude Code output
+    # Right-top pane (pane 1): Live Codex CLI output
     tmux send-keys -t "$session_name:${base_win}.1" "tail -f '$project_dir/$LIVE_LOG_FILE'" Enter
 
     # Right-bottom pane (pane 2): Ralph status monitor
@@ -277,7 +277,7 @@ setup_tmux_session() {
 
     # Set pane titles (requires tmux 2.6+)
     tmux select-pane -t "$session_name:${base_win}.0" -T "Ralph Loop"
-    tmux select-pane -t "$session_name:${base_win}.1" -T "Claude Output"
+    tmux select-pane -t "$session_name:${base_win}.1" -T "Codex Output"
     tmux select-pane -t "$session_name:${base_win}.2" -T "Status"
 
     # Set window title
@@ -285,7 +285,7 @@ setup_tmux_session() {
 
     log_status "SUCCESS" "Tmux session created with 3 panes:"
     log_status "INFO" "  Left:         Ralph loop"
-    log_status "INFO" "  Right-top:    Claude Code live output"
+    log_status "INFO" "  Right-top:    Codex CLI live output"
     log_status "INFO" "  Right-bottom: Status monitor"
     log_status "INFO" ""
     log_status "INFO" "Use Ctrl+B then D to detach from session"
@@ -444,7 +444,7 @@ should_exit_gracefully() {
     # Check for exit conditions
 
     # 0. Permission denials (highest priority - Issue #101)
-    # When Claude Code is denied permission to run commands, halt immediately
+    # When Codex CLI is denied permission to run commands, halt immediately
     # to allow user to update .ralphrc ALLOWED_TOOLS configuration
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
@@ -473,8 +473,8 @@ should_exit_gracefully() {
     fi
     
     # 3. Safety circuit breaker - force exit after 5 consecutive EXIT_SIGNAL=true responses
-    # Note: completion_indicators only accumulates when Claude explicitly sets EXIT_SIGNAL=true
-    # (not based on confidence score). This safety breaker catches cases where Claude signals
+    # Note: completion_indicators only accumulates when Codex CLI explicitly sets EXIT_SIGNAL=true
+    # (not based on confidence score). This safety breaker catches cases where the agent signals
     # completion 5+ times but the normal exit path (completion_indicators >= 2 + EXIT_SIGNAL=true)
     # didn't trigger for some reason. Threshold of 5 prevents API waste while being higher than
     # the normal threshold (2) to avoid false positives.
@@ -484,10 +484,10 @@ should_exit_gracefully() {
         return 0
     fi
 
-    # 4. Strong completion indicators (only if Claude's EXIT_SIGNAL is true)
+    # 4. Strong completion indicators (only if Codex CLI's EXIT_SIGNAL is true)
     # This prevents premature exits when heuristics detect completion patterns
-    # but Claude explicitly indicates work is still in progress via RALPH_STATUS block.
-    # The exit_signal in .response_analysis represents Claude's explicit intent.
+    # but Codex CLI explicitly indicates work is still in progress via RALPH_STATUS block.
+    # The exit_signal in .response_analysis represents explicit agent intent.
     local claude_exit_signal="false"
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         claude_exit_signal=$(jq -r '.analysis.exit_signal // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
@@ -600,7 +600,7 @@ validate_allowed_tools() {
     return 0
 }
 
-# Build loop context for Claude Code session
+# Build loop context for Codex CLI session
 # Provides loop-specific context via --append-system-prompt
 build_loop_context() {
     local loop_count=$1
@@ -687,7 +687,7 @@ get_session_file_age_hours() {
 # - Default expiration: 24 hours (configurable via CLAUDE_SESSION_EXPIRY_HOURS)
 # - 24 hours chosen because: long enough for multi-day projects, short enough
 #   to prevent stale context from causing unpredictable behavior
-# - Sessions auto-expire to ensure Claude starts fresh periodically
+# - Sessions auto-expire to ensure Codex CLI starts fresh periodically
 #
 # Returns (stdout):
 #   - Session ID string: when resuming a valid, non-expired session
@@ -804,7 +804,7 @@ reset_session() {
             reset_reason: $reset_reason
         }' > "$RALPH_SESSION_FILE"
 
-    # Also clear the Claude session file for consistency
+    # Also clear the Codex CLI session file for consistency
     rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
 
     # Clear exit signals to prevent stale completion indicators from causing premature exit (issue #91)
@@ -955,7 +955,7 @@ update_session_last_used() {
     fi
 }
 
-# Global array for Claude command arguments (avoids shell injection)
+# Global array for Codex command arguments (avoids shell injection)
 declare -a CLAUDE_CMD_ARGS=()
 
 # Build Codex CLI command with modern flags using array (shell-injection safe)
@@ -1011,7 +1011,7 @@ execute_claude_code() {
     calls_made=$((calls_made + 1))
 
     # Fix #141: Capture git HEAD SHA at loop start to detect commits as progress
-    # Store in file for access by progress detection after Claude execution
+    # Store in file for access by progress detection after Codex CLI execution
     local loop_start_sha=""
     if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
         loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
@@ -1038,7 +1038,7 @@ execute_claude_code() {
     fi
 
     # Codex is executed in JSONL mode and converted to message text post-run.
-    # Live streaming mode from Claude stream-json is not supported in this path yet.
+    # Live streaming mode from legacy stream-json is not supported in this path yet.
     if [[ "$LIVE_OUTPUT" == "true" ]]; then
         log_status "WARN" "Live mode is currently disabled for Codex CLI execution. Falling back to background mode."
         LIVE_OUTPUT=false
@@ -1171,7 +1171,7 @@ EOF
             # Check if commits were made (HEAD changed)
             if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
                 # Commits were made - count union of committed files AND working tree changes
-                # This catches cases where Claude commits some files but still has other modified files
+                # This catches cases where Codex CLI commits some files but still has other modified files
                 files_changed=$(
                     {
                         git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
@@ -1263,7 +1263,7 @@ main() {
         fi
     fi
 
-    log_status "SUCCESS" "🚀 Ralph loop starting with Claude Code"
+    log_status "SUCCESS" "🚀 Ralph loop starting with Codex CLI"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
 

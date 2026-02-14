@@ -16,8 +16,8 @@ CONVERSION_OUTPUT_FILE=".ralph_conversion_output.json"
 CONVERSION_PROMPT_FILE=".ralph_conversion_prompt.md"
 
 # Global parsed conversion result variables
-# Set by parse_conversion_response() when parsing JSON output from Claude CLI
-declare PARSED_RESULT=""           # Result/summary text from Claude response
+# Set by parse_conversion_response() when parsing JSON output from Codex CLI
+declare PARSED_RESULT=""           # Result/summary text from Codex CLI response
 declare PARSED_SESSION_ID=""       # Session ID for potential continuation
 declare PARSED_FILES_CHANGED=""    # Count of files changed
 declare PARSED_HAS_ERRORS=""       # Boolean flag indicating errors occurred
@@ -561,7 +561,7 @@ PROMPTEOF
 
         # If JSON parsing provided missing files info, use that for better feedback
         if [[ "$json_parsed" == "true" && -n "$PARSED_MISSING_FILES" && "$PARSED_MISSING_FILES" != "[]" ]]; then
-            log "INFO" "Missing files reported by Claude: $PARSED_MISSING_FILES"
+            log "INFO" "Missing files reported by Codex CLI: $PARSED_MISSING_FILES"
         fi
 
         log "INFO" "You may need to create these files manually or run the conversion again"

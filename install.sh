@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Ralph for Claude Code - Global Installation Script
+# Ralph for Codex CLI - Global Installation Script
 set -e
 
 # Configuration
@@ -122,7 +122,7 @@ install_scripts() {
     # Create the main ralph command
     cat > "$INSTALL_DIR/ralph" << 'EOF'
 #!/bin/bash
-# Ralph for Claude Code - Main Command
+# Ralph for Codex CLI - Main Command
 
 RALPH_HOME="$HOME/.ralph"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -245,7 +245,7 @@ install_ralph_loop() {
 install_setup() {
     log "INFO" "Installing global setup script..."
 
-    # Copy the actual setup.sh from ralph-claude-code root directory so setup information will be consistent
+    # Copy the actual setup.sh from ralph-codex root directory so setup information will be consistent
     if [[ -f "$SCRIPT_DIR/setup.sh" ]]; then
         cp "$SCRIPT_DIR/setup.sh" "$RALPH_HOME/setup.sh"
         chmod +x "$RALPH_HOME/setup.sh"
@@ -275,7 +275,7 @@ check_path() {
 
 # Main installation
 main() {
-    echo "🚀 Installing Ralph for Claude Code globally..."
+    echo "🚀 Installing Ralph for Codex CLI globally..."
     echo ""
     
     check_dependencies
@@ -286,7 +286,7 @@ main() {
     check_path
     
     echo ""
-    log "SUCCESS" "🎉 Ralph for Claude Code installed successfully!"
+    log "SUCCESS" "🎉 Ralph for Codex CLI installed successfully!"
     echo ""
     echo "Global commands available:"
     echo "  ralph --monitor          # Start Ralph with integrated monitoring"
@@ -316,13 +316,13 @@ case "${1:-install}" in
         main
         ;;
     uninstall)
-        log "INFO" "Uninstalling Ralph for Claude Code..."
+        log "INFO" "Uninstalling Ralph for Codex CLI..."
         rm -f "$INSTALL_DIR/ralph" "$INSTALL_DIR/ralph-monitor" "$INSTALL_DIR/ralph-setup" "$INSTALL_DIR/ralph-import" "$INSTALL_DIR/ralph-migrate" "$INSTALL_DIR/ralph-enable" "$INSTALL_DIR/ralph-enable-ci"
         rm -rf "$RALPH_HOME"
-        log "SUCCESS" "Ralph for Claude Code uninstalled"
+        log "SUCCESS" "Ralph for Codex CLI uninstalled"
         ;;
     --help|-h)
-        echo "Ralph for Claude Code Installation"
+        echo "Ralph for Codex CLI Installation"
         echo ""
         echo "Usage: $0 [install|uninstall]"
         echo ""
