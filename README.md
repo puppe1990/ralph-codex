@@ -482,6 +482,44 @@ ralph --monitor --timeout 60  # 60-minute timeout
 ralph --verbose --timeout 5  # 5-minute timeout with progress
 ```
 
+### Recommended Security Profiles
+
+Use one of these profiles according to environment risk:
+
+1. `read-only` (safest)
+   - Use for reconnaissance, planning, and documentation-only loops.
+   - Example:
+```bash
+ralph --sandbox read-only
+```
+   - Typical approval policy: strict/manual (approve each write or command escalation).
+
+2. `workspace-write` (recommended default)
+   - Use for normal implementation in repository files.
+   - Example:
+```bash
+ralph --sandbox workspace-write --full-auto
+```
+   - Typical approval policy: `on-request` (approve sensitive operations only).
+
+3. `danger-full-access` (high risk)
+   - Use only in isolated CI/sandboxed environments you fully control.
+   - Example:
+```bash
+ralph --sandbox danger-full-access
+```
+   - Typical approval policy: never/unattended only in hardened environments.
+
+4. Explicit bypass mode (maximum risk)
+   - Disables approvals and sandbox together.
+   - Example:
+```bash
+ralph --dangerously-bypass-approvals-and-sandbox
+```
+   - Only for ephemeral, disposable environments.
+
+If Ralph halts with permission errors, review your Codex sandbox/approval settings and restart with a stricter or more appropriate profile.
+
 ### Verbose Mode
 
 ```bash
@@ -825,6 +863,15 @@ ralph [OPTIONS]
   -v, --verbose           Show detailed progress updates during execution
   -l, --live              Deprecated compatibility flag (ignored in Codex mode)
   -t, --timeout MIN       Set Codex CLI execution timeout in minutes (1-120, default: 15)
+  --sandbox MODE          Sandbox mode: read-only|workspace-write|danger-full-access
+  --full-auto             Shortcut for on-request approvals + workspace-write sandbox
+  --dangerously-bypass-approvals-and-sandbox
+                          Disable approvals and sandbox (dangerous)
+  --profile NAME          Use Codex profile from ~/.codex/config.toml
+  --cd DIR                Set Codex working directory root
+  --add-dir DIR           Add extra writable directory (repeatable)
+  --skip-git-repo-check   Allow running Codex outside git repositories
+  --ephemeral             Run without persisting session files
   --output-format FORMAT  Deprecated compatibility flag (no-op in Codex mode)
   --allowed-tools TOOLS   Deprecated compatibility flag (no-op in Codex mode)
   --no-continue           Disable session continuity (start fresh each loop)
