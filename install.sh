@@ -81,8 +81,13 @@ check_dependencies() {
         fi
     fi
 
-    # Claude Code CLI will be downloaded automatically when first used
-    log "INFO" "Claude Code CLI (@anthropic-ai/claude-code) will be downloaded when first used."
+    # Codex CLI is required for loop execution
+    if ! command -v codex &> /dev/null; then
+        log "ERROR" "Codex CLI is required but was not found in PATH."
+        echo "Install Codex CLI first, then run this installer again."
+        exit 1
+    fi
+    log "INFO" "Codex CLI detected: $(codex --version 2>/dev/null || echo 'version unknown')"
 
     # Check tmux (optional)
     if ! command -v tmux &> /dev/null; then

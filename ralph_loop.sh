@@ -25,7 +25,7 @@ LOG_DIR="$RALPH_DIR/logs"
 DOCS_DIR="$RALPH_DIR/docs/generated"
 STATUS_FILE="$RALPH_DIR/status.json"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
-CLAUDE_CODE_CMD="claude"
+CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-codex}"
 SLEEP_DURATION=3600     # 1 hour in seconds
 LIVE_OUTPUT=false       # Show Claude Code output in real-time (streaming)
 LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
@@ -55,7 +55,7 @@ CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
 CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)}"
 CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
 CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
-CLAUDE_MIN_VERSION="2.0.76"              # Minimum required Claude CLI version
+CLAUDE_MIN_VERSION="${CLAUDE_MIN_VERSION:-0.80.0}"  # Minimum recommended Codex CLI version
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -523,12 +523,12 @@ should_exit_gracefully() {
 # MODERN CLI HELPER FUNCTIONS (Phase 1.1)
 # =============================================================================
 
-# Check Claude CLI version for compatibility with modern flags
+# Check Codex CLI version for compatibility with modern flags
 check_claude_version() {
     local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
     if [[ -z "$version" ]]; then
-        log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
+        log_status "WARN" "Cannot detect Codex CLI version, assuming compatible"
         return 0
     fi
 
@@ -543,12 +543,12 @@ check_claude_version() {
     local req_num=$((${req_parts[0]:-0} * 10000 + ${req_parts[1]:-0} * 100 + ${req_parts[2]:-0}))
 
     if [[ $ver_num -lt $req_num ]]; then
-        log_status "WARN" "Claude CLI version $version < $required. Some modern features may not work."
-        log_status "WARN" "Consider upgrading: npm update -g @anthropic-ai/claude-code"
+        log_status "WARN" "Codex CLI version $version < $required. Some features may not work."
+        log_status "WARN" "Consider upgrading Codex CLI."
         return 1
     fi
 
-    log_status "INFO" "Claude CLI version $version (>= $required) - modern features enabled"
+    log_status "INFO" "Codex CLI version $version (>= $required) - modern features enabled"
     return 0
 }
 
@@ -681,7 +681,7 @@ get_session_file_age_hours() {
     echo "$age_hours"
 }
 
-# Initialize or resume Claude session (with expiration check)
+# Initialize or resume Codex thread session (with expiration check)
 #
 # Session Expiration Strategy:
 # - Default expiration: 24 hours (configurable via CLAUDE_SESSION_EXPIRY_HOURS)
@@ -722,13 +722,13 @@ init_claude_session() {
         # Session is valid, try to read it
         local session_id=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
         if [[ -n "$session_id" ]]; then
-            log_status "INFO" "Resuming Claude session: ${session_id:0:20}... (${age_hours}h old)"
+            log_status "INFO" "Resuming Codex thread: ${session_id:0:20}... (${age_hours}h old)"
             echo "$session_id"
             return 0
         fi
     fi
 
-    log_status "INFO" "Starting new Claude session"
+    log_status "INFO" "Starting new Codex session"
     echo ""
 }
 
@@ -736,12 +736,21 @@ init_claude_session() {
 save_claude_session() {
     local output_file=$1
 
-    # Try to extract session ID from JSON output
+    # Try to extract session ID from Codex JSONL output first
     if [[ -f "$output_file" ]]; then
-        local session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null)
+        local session_id=""
+
+        # Codex exec --json format
+        session_id=$(jq -r 'select(.type == "thread.started") | .thread_id // empty' "$output_file" 2>/dev/null | head -1)
+
+        # Backward-compatible fallback format
+        if [[ -z "$session_id" ]]; then
+            session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null)
+        fi
+
         if [[ -n "$session_id" && "$session_id" != "null" ]]; then
             echo "$session_id" > "$CLAUDE_SESSION_FILE"
-            log_status "INFO" "Saved Claude session: ${session_id:0:20}..."
+            log_status "INFO" "Saved Codex thread: ${session_id:0:20}..."
         fi
     fi
 }
@@ -949,19 +958,16 @@ update_session_last_used() {
 # Global array for Claude command arguments (avoids shell injection)
 declare -a CLAUDE_CMD_ARGS=()
 
-# Build Claude CLI command with modern flags using array (shell-injection safe)
+# Build Codex CLI command with modern flags using array (shell-injection safe)
 # Populates global CLAUDE_CMD_ARGS array for direct execution
-# Uses -p flag with prompt content (Claude CLI does not have --prompt-file)
+# Uses positional prompt argument for codex exec / codex exec resume
 build_claude_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
 
     # Reset global array
-    # Note: We do NOT use --dangerously-skip-permissions here. Tool permissions
-    # are controlled via --allowedTools from CLAUDE_ALLOWED_TOOLS in .ralphrc.
-    # This preserves the permission denial circuit breaker (Issue #101).
-    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
+    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD" "exec")
 
     # Check if prompt file exists
     if [[ ! -f "$prompt_file" ]]; then
@@ -969,54 +975,37 @@ build_claude_command() {
         return 1
     fi
 
-    # Add output format flag
-    if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
-        CLAUDE_CMD_ARGS+=("--output-format" "json")
-    fi
+    # Codex only supports JSONL structured output for machine parsing
+    CLAUDE_CMD_ARGS+=("--json")
 
-    # Add allowed tools (each tool as separate array element)
-    if [[ -n "$CLAUDE_ALLOWED_TOOLS" ]]; then
-        CLAUDE_CMD_ARGS+=("--allowedTools")
-        # Split by comma and add each tool
-        local IFS=','
-        read -ra tools_array <<< "$CLAUDE_ALLOWED_TOOLS"
-        for tool in "${tools_array[@]}"; do
-            # Trim whitespace
-            tool=$(echo "$tool" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            if [[ -n "$tool" ]]; then
-                CLAUDE_CMD_ARGS+=("$tool")
-            fi
-        done
-    fi
-
-    # Add session continuity flag
-    # IMPORTANT: Use --resume with explicit session ID instead of --continue
-    # --continue resumes the "most recent session in current directory" which
-    # can hijack active Claude Code sessions. --resume with a specific session ID
-    # ensures we only resume Ralph's own sessions. (Issue #151)
+    # If session continuity is enabled and we have a thread id, switch to "exec resume"
     if [[ "$CLAUDE_USE_CONTINUE" == "true" && -n "$session_id" ]]; then
-        CLAUDE_CMD_ARGS+=("--resume" "$session_id")
-    fi
-    # If no session_id, start fresh - Claude will generate a new session ID
-    # which we'll capture via save_claude_session() for future loops
-
-    # Add loop context as system prompt (no escaping needed - array handles it)
-    if [[ -n "$loop_context" ]]; then
-        CLAUDE_CMD_ARGS+=("--append-system-prompt" "$loop_context")
+        CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD" "exec" "resume" "--json" "$session_id")
     fi
 
-    # Read prompt file content and use -p flag
-    # Note: Claude CLI uses -p for prompts, not --prompt-file (which doesn't exist)
-    # Array-based approach maintains shell injection safety
+    # Read prompt file content and append loop context inline
     local prompt_content
     prompt_content=$(cat "$prompt_file")
-    CLAUDE_CMD_ARGS+=("-p" "$prompt_content")
+    if [[ -n "$loop_context" ]]; then
+        prompt_content=$(cat <<EOF
+[RALPH LOOP CONTEXT]
+$loop_context
+[/RALPH LOOP CONTEXT]
+
+$prompt_content
+EOF
+)
+    fi
+
+    CLAUDE_CMD_ARGS+=("$prompt_content")
 }
 
 # Main execution function
 execute_claude_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
-    local output_file="$LOG_DIR/claude_output_${timestamp}.log"
+    local output_file="$LOG_DIR/codex_output_${timestamp}.log"
+    local jsonl_file="$LOG_DIR/codex_events_${timestamp}.jsonl"
+    local stderr_file="$LOG_DIR/codex_stderr_${timestamp}.log"
     local loop_count=$1
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
@@ -1029,9 +1018,9 @@ execute_claude_code() {
     fi
     echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
 
-    log_status "LOOP" "Executing Claude Code (Call $calls_made/$MAX_CALLS_PER_HOUR)"
+    log_status "LOOP" "Executing Codex CLI (Call $calls_made/$MAX_CALLS_PER_HOUR)"
     local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
-    log_status "INFO" "⏳ Starting Claude Code execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
+    log_status "INFO" "⏳ Starting Codex CLI execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
 
     # Build loop context for session continuity
     local loop_context=""
@@ -1042,223 +1031,61 @@ execute_claude_code() {
         fi
     fi
 
-    # Initialize or resume session
+    # Initialize or resume session (Codex thread id)
     local session_id=""
     if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
         session_id=$(init_claude_session)
     fi
 
-    # Live mode requires JSON output (stream-json) — override text format
-    if [[ "$LIVE_OUTPUT" == "true" && "$CLAUDE_OUTPUT_FORMAT" == "text" ]]; then
-        log_status "WARN" "Live mode requires JSON output format. Overriding text → json for this session."
-        CLAUDE_OUTPUT_FORMAT="json"
+    # Codex is executed in JSONL mode and converted to message text post-run.
+    # Live streaming mode from Claude stream-json is not supported in this path yet.
+    if [[ "$LIVE_OUTPUT" == "true" ]]; then
+        log_status "WARN" "Live mode is currently disabled for Codex CLI execution. Falling back to background mode."
+        LIVE_OUTPUT=false
     fi
 
-    # Build the Claude CLI command with modern flags
-    local use_modern_cli=false
-
-    if build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
-        use_modern_cli=true
-        log_status "INFO" "Using modern CLI mode (${CLAUDE_OUTPUT_FORMAT} output)"
-    else
-        log_status "WARN" "Failed to build modern CLI command, falling back to legacy mode"
-        if [[ "$LIVE_OUTPUT" == "true" ]]; then
-            log_status "ERROR" "Live mode requires a built Claude command. Falling back to background mode."
-            LIVE_OUTPUT=false
-        fi
+    if ! build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+        log_status "ERROR" "❌ Failed to build Codex CLI command"
+        return 1
     fi
 
-    # Execute Claude Code
+    # Execute Codex CLI
     local exit_code=0
 
     # Initialize live.log for this execution
     echo -e "\n\n=== Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
-
-    if [[ "$LIVE_OUTPUT" == "true" ]]; then
-        # LIVE MODE: Show streaming output in real-time using stream-json + jq
-        # Based on: https://www.ytyng.com/en/blog/claude-stream-json-jq/
-        #
-        # Uses CLAUDE_CMD_ARGS from build_claude_command() to preserve:
-        # - --allowedTools (tool permissions)
-        # - --append-system-prompt (loop context)
-        # - --continue (session continuity)
-        # - -p (prompt content)
-
-        # Check dependencies for live mode
-        if ! command -v jq &> /dev/null; then
-            log_status "ERROR" "Live mode requires 'jq' but it's not installed. Falling back to background mode."
-            LIVE_OUTPUT=false
-        elif ! command -v stdbuf &> /dev/null; then
-            log_status "ERROR" "Live mode requires 'stdbuf' (from coreutils) but it's not installed. Falling back to background mode."
-            LIVE_OUTPUT=false
-        fi
-    fi
-
-    if [[ "$LIVE_OUTPUT" == "true" ]]; then
-        # Safety check: live mode requires a successfully built modern command
-        if [[ "$use_modern_cli" != "true" || ${#CLAUDE_CMD_ARGS[@]} -eq 0 ]]; then
-            log_status "ERROR" "Live mode requires a built Claude command. Falling back to background mode."
-            LIVE_OUTPUT=false
-        fi
-    fi
-
-    if [[ "$LIVE_OUTPUT" == "true" ]]; then
-        log_status "INFO" "📺 Live output mode enabled - showing Claude Code streaming..."
-        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ Claude Code Output ━━━━━━━━━━━━━━━━${NC}"
-
-        # Modify CLAUDE_CMD_ARGS: replace --output-format value with stream-json
-        # and add streaming-specific flags
-        local -a LIVE_CMD_ARGS=()
-        local skip_next=false
-        for arg in "${CLAUDE_CMD_ARGS[@]}"; do
-            if [[ "$skip_next" == "true" ]]; then
-                # Replace "json" with "stream-json" for output format
-                LIVE_CMD_ARGS+=("stream-json")
-                skip_next=false
-            elif [[ "$arg" == "--output-format" ]]; then
-                LIVE_CMD_ARGS+=("$arg")
-                skip_next=true
-            else
-                LIVE_CMD_ARGS+=("$arg")
-            fi
-        done
-
-        # Add streaming-specific flags (--verbose and --include-partial-messages)
-        # These are required for stream-json to work properly
-        LIVE_CMD_ARGS+=("--verbose" "--include-partial-messages")
-
-        # jq filter: show text + tool names + newlines for readability
-        local jq_filter='
-            if .type == "stream_event" then
-                if .event.type == "content_block_delta" and .event.delta.type == "text_delta" then
-                    .event.delta.text
-                elif .event.type == "content_block_start" and .event.content_block.type == "tool_use" then
-                    "\n\n⚡ [" + .event.content_block.name + "]\n"
-                elif .event.type == "content_block_stop" then
-                    "\n"
-                else
-                    empty
-                end
-            else
-                empty
-            end'
-
-        # Execute with streaming, preserving all flags from build_claude_command()
-        # Use stdbuf to disable buffering for real-time output
-        # Use portable_timeout for consistent timeout protection (Issue: missing timeout)
-        # Capture all pipeline exit codes for proper error handling
-        # stdin must be redirected from /dev/null because newer Claude CLI versions
-        # read from stdin even in -p (print) mode, causing the process to hang
-        set -o pipefail
-        portable_timeout ${timeout_seconds}s stdbuf -oL "${LIVE_CMD_ARGS[@]}" \
-            < /dev/null 2>&1 | stdbuf -oL tee "$output_file" | stdbuf -oL jq --unbuffered -j "$jq_filter" 2>/dev/null | tee "$LIVE_LOG_FILE"
-
-        # Capture exit codes from pipeline
-        local -a pipe_status=("${PIPESTATUS[@]}")
-        set +o pipefail
-
-        # Primary exit code is from Claude/timeout (first command in pipeline)
-        exit_code=${pipe_status[0]}
-
-        # Check for tee failures (second command) - could break logging/session
-        if [[ ${pipe_status[1]} -ne 0 ]]; then
-            log_status "WARN" "Failed to write stream output to log file (exit code ${pipe_status[1]})"
-        fi
-
-        # Check for jq failures (third command) - warn but don't fail
-        if [[ ${pipe_status[2]} -ne 0 ]]; then
-            log_status "WARN" "jq filter had issues parsing some stream events (exit code ${pipe_status[2]})"
-        fi
-
-        echo ""
-        echo -e "${PURPLE}━━━━━━━━━━━━━━━━ End of Output ━━━━━━━━━━━━━━━━━━━${NC}"
-
-        # Extract session ID from stream-json output for session continuity
-        # Stream-json format has session_id in the final "result" type message
-        # Keep full stream output in _stream.log, extract session data separately
-        if [[ "$CLAUDE_USE_CONTINUE" == "true" && -f "$output_file" ]]; then
-            # Preserve full stream output for analysis (don't overwrite output_file)
-            local stream_output_file="${output_file%.log}_stream.log"
-            cp "$output_file" "$stream_output_file"
-
-            # Extract the result message and convert to standard JSON format
-            # Use flexible regex to match various JSON formatting styles
-            # Matches: "type":"result", "type": "result", "type" : "result"
-            local result_line=$(grep -E '"type"[[:space:]]*:[[:space:]]*"result"' "$output_file" 2>/dev/null | tail -1)
-
-            if [[ -n "$result_line" ]]; then
-                # Validate that extracted line is valid JSON before using it
-                if echo "$result_line" | jq -e . >/dev/null 2>&1; then
-                    # Write validated result as the output_file for downstream processing
-                    # (save_claude_session and analyze_response expect JSON format)
-                    echo "$result_line" > "$output_file"
-                    log_status "INFO" "Extracted and validated session data from stream output"
-                else
-                    log_status "WARN" "Extracted result line is not valid JSON, keeping stream output"
-                    # Restore original stream output
-                    cp "$stream_output_file" "$output_file"
-                fi
-            else
-                log_status "WARN" "Could not find result message in stream output"
-                # Keep stream output as-is for debugging
-            fi
-        fi
+    # BACKGROUND MODE with progress monitoring
+    if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" < /dev/null > "$jsonl_file" 2> "$stderr_file" &
+    then
+        :  # Continue to wait loop
     else
-        # BACKGROUND MODE: Original behavior with progress monitoring
-        if [[ "$use_modern_cli" == "true" ]]; then
-            # Modern execution with command array (shell-injection safe)
-            # Execute array directly without bash -c to prevent shell metacharacter interpretation
-            # stdin must be redirected from /dev/null because newer Claude CLI versions
-            # read from stdin even in -p (print) mode, causing SIGTTIN suspension
-            # when the process is backgrounded
-            if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" < /dev/null > "$output_file" 2>&1 &
-            then
-                :  # Continue to wait loop
-            else
-                log_status "ERROR" "❌ Failed to start Claude Code process (modern mode)"
-                # Fall back to legacy mode
-                log_status "INFO" "Falling back to legacy mode..."
-                use_modern_cli=false
-            fi
+        log_status "ERROR" "❌ Failed to start Codex CLI process"
+        return 1
+    fi
+
+    # Get PID and monitor progress
+    local codex_pid=$!
+    local progress_counter=0
+
+    # Show progress while Codex is running
+    while kill -0 $codex_pid 2>/dev/null; do
+        progress_counter=$((progress_counter + 1))
+        case $((progress_counter % 4)) in
+            1) progress_indicator="⠋" ;;
+            2) progress_indicator="⠙" ;;
+            3) progress_indicator="⠹" ;;
+            0) progress_indicator="⠸" ;;
+        esac
+
+        # Get last line from output if available
+        local last_line=""
+        if [[ -f "$jsonl_file" && -s "$jsonl_file" ]]; then
+            last_line=$(tail -1 "$jsonl_file" 2>/dev/null | head -c 80)
+            cp "$jsonl_file" "$LIVE_LOG_FILE" 2>/dev/null
         fi
 
-        # Fall back to legacy stdin piping if modern mode failed or not enabled
-        # Note: Legacy mode doesn't use --allowedTools, so tool permissions
-        # will be handled by Claude Code's default permission system
-        if [[ "$use_modern_cli" == "false" ]]; then
-            if portable_timeout ${timeout_seconds}s $CLAUDE_CODE_CMD < "$PROMPT_FILE" > "$output_file" 2>&1 &
-            then
-                :  # Continue to wait loop
-            else
-                log_status "ERROR" "❌ Failed to start Claude Code process"
-                return 1
-            fi
-        fi
-
-        # Get PID and monitor progress
-        local claude_pid=$!
-        local progress_counter=0
-
-        # Show progress while Claude Code is running
-        while kill -0 $claude_pid 2>/dev/null; do
-            progress_counter=$((progress_counter + 1))
-            case $((progress_counter % 4)) in
-                1) progress_indicator="⠋" ;;
-                2) progress_indicator="⠙" ;;
-                3) progress_indicator="⠹" ;;
-                0) progress_indicator="⠸" ;;
-            esac
-
-            # Get last line from output if available
-            local last_line=""
-            if [[ -f "$output_file" && -s "$output_file" ]]; then
-                last_line=$(tail -1 "$output_file" 2>/dev/null | head -c 80)
-                # Copy to live.log for tmux monitoring
-                cp "$output_file" "$LIVE_LOG_FILE" 2>/dev/null
-            fi
-
-            # Update progress file for monitor
-            cat > "$PROGRESS_FILE" << EOF
+        # Update progress file for monitor
+        cat > "$PROGRESS_FILE" << EOF
 {
     "status": "executing",
     "indicator": "$progress_indicator",
@@ -1268,21 +1095,39 @@ execute_claude_code() {
 }
 EOF
 
-            # Only log if verbose mode is enabled
-            if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-                if [[ -n "$last_line" ]]; then
-                    log_status "INFO" "$progress_indicator Claude Code: $last_line... (${progress_counter}0s)"
-                else
-                    log_status "INFO" "$progress_indicator Claude Code working... (${progress_counter}0s elapsed)"
-                fi
+        # Only log if verbose mode is enabled
+        if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+            if [[ -n "$last_line" ]]; then
+                log_status "INFO" "$progress_indicator Codex: $last_line... (${progress_counter}0s)"
+            else
+                log_status "INFO" "$progress_indicator Codex working... (${progress_counter}0s elapsed)"
             fi
+        fi
 
-            sleep 10
-        done
+        sleep 10
+    done
 
-        # Wait for the process to finish and get exit code
-        wait $claude_pid
-        exit_code=$?
+    # Wait for the process to finish and get exit code
+    wait $codex_pid
+    exit_code=$?
+
+    # Convert Codex JSONL output to plain assistant message text for analyzer
+    if [[ -f "$jsonl_file" && -s "$jsonl_file" ]]; then
+        jq -r 'select(.type == "item.completed" and .item.type == "agent_message") | .item.text' "$jsonl_file" > "$output_file" 2>/dev/null || true
+
+        # If no agent message extracted, keep raw events for debugging
+        if [[ ! -s "$output_file" ]]; then
+            cp "$jsonl_file" "$output_file"
+        fi
+    fi
+
+    # Append stderr diagnostics to output log (if any)
+    if [[ -f "$stderr_file" && -s "$stderr_file" ]]; then
+        {
+            echo ""
+            echo "--- CODEX STDERR ---"
+            cat "$stderr_file"
+        } >> "$output_file"
     fi
 
     if [ $exit_code -eq 0 ]; then
@@ -1292,15 +1137,15 @@ EOF
         # Clear progress file
         echo '{"status": "completed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
-        log_status "SUCCESS" "✅ Claude Code execution completed successfully"
+        log_status "SUCCESS" "✅ Codex CLI execution completed successfully"
 
-        # Save session ID from JSON output (Phase 1.1)
+        # Save thread ID from Codex JSONL output (session continuity)
         if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-            save_claude_session "$output_file"
+            save_claude_session "$jsonl_file"
         fi
 
         # Analyze the response
-        log_status "INFO" "🔍 Analyzing Claude Code response..."
+        log_status "INFO" "🔍 Analyzing Codex response..."
         analyze_response "$output_file" "$loop_count"
         local analysis_exit_code=$?
 
@@ -1384,12 +1229,12 @@ EOF
         # Clear progress file on failure
         echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
-        # Check if the failure is due to API 5-hour limit
+        # Check if the failure is due to provider usage limits
         if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
-            log_status "ERROR" "🚫 Claude API 5-hour usage limit reached"
+            log_status "ERROR" "🚫 API usage limit reached"
             return 2  # Special return code for API limit
         else
-            log_status "ERROR" "❌ Claude Code execution failed, check: $output_file"
+            log_status "ERROR" "❌ Codex CLI execution failed, check: $output_file"
             return 1
         fi
     fi
@@ -1506,7 +1351,7 @@ main() {
                 echo -e "${RED}║  PERMISSION DENIED - Loop Halted                          ║${NC}"
                 echo -e "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
                 echo ""
-                echo -e "${YELLOW}Claude Code was denied permission to execute commands.${NC}"
+                echo -e "${YELLOW}The coding agent was denied permission to execute commands.${NC}"
                 echo ""
                 echo -e "${YELLOW}To fix this:${NC}"
                 echo "  1. Edit .ralphrc and update ALLOWED_TOOLS to include the required tools"
@@ -1549,7 +1394,7 @@ main() {
         local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
         update_status "$loop_count" "$calls_made" "executing" "running"
         
-        # Execute Claude Code
+        # Execute Codex CLI
         execute_claude_code "$loop_count"
         local exec_result=$?
         
@@ -1568,10 +1413,10 @@ main() {
         elif [ $exec_result -eq 2 ]; then
             # API 5-hour limit reached - handle specially
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
-            log_status "WARN" "🛑 Claude API 5-hour limit reached!"
+            log_status "WARN" "🛑 API usage limit reached!"
             
             # Ask user whether to wait or exit
-            echo -e "\n${YELLOW}The Claude API 5-hour usage limit has been reached.${NC}"
+            echo -e "\n${YELLOW}A provider usage limit was reached.${NC}"
             echo -e "${YELLOW}You can either:${NC}"
             echo -e "  ${GREEN}1)${NC} Wait for the limit to reset (usually within an hour)"
             echo -e "  ${GREEN}2)${NC} Exit the loop and try again later"
@@ -1615,7 +1460,7 @@ main() {
 # Help function
 show_help() {
     cat << HELPEOF
-Ralph Loop for Claude Code
+Ralph Loop for Codex CLI
 
 Usage: $0 [OPTIONS]
 
@@ -1629,17 +1474,16 @@ Options:
     -s, --status            Show current status and exit
     -m, --monitor           Start with tmux session and live monitor (requires tmux)
     -v, --verbose           Show detailed progress updates during execution
-    -l, --live              Show Claude Code output in real-time (auto-switches to JSON output)
-    -t, --timeout MIN       Set Claude Code execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
+    -l, --live              Compatibility flag (live streaming currently disabled in Codex mode)
+    -t, --timeout MIN       Set Codex execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
 
-Modern CLI Options (Phase 1.1):
-    --output-format FORMAT  Set Claude output format: json or text (default: $CLAUDE_OUTPUT_FORMAT)
-                            Note: --live mode requires JSON and will auto-switch
-    --allowed-tools TOOLS   Comma-separated list of allowed tools (default: $CLAUDE_ALLOWED_TOOLS)
+Compatibility Options:
+    --output-format FORMAT  Compatibility option (Codex always runs with --json events)
+    --allowed-tools TOOLS   Compatibility option (tool filtering not applied in Codex mode)
     --no-continue           Disable session continuity across loops
     --session-expiry HOURS  Set session expiration time in hours (default: $CLAUDE_SESSION_EXPIRY_HOURS)
 
@@ -1660,11 +1504,11 @@ Example workflow:
 Examples:
     $0 --calls 50 --prompt my_prompt.md
     $0 --monitor             # Start with integrated tmux monitoring
-    $0 --live                # Show Claude Code output in real-time (streaming)
-    $0 --live --verbose      # Live streaming + verbose logging
+    $0 --live                # Accepted for compatibility (runs in background mode)
+    $0 --live --verbose      # Verbose mode with compatibility live flag
     $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
     $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
-    $0 --output-format text     # Use legacy text output format
+    $0 --output-format text     # Compatibility flag (ignored in Codex mode)
     $0 --no-continue            # Disable session continuity
     $0 --session-expiry 48      # 48-hour session expiration
 
