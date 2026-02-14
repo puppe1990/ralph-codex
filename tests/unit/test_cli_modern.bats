@@ -438,6 +438,42 @@ EOF
     [[ "$output" == *"no-continue"* ]] || skip "--no-continue help not yet added"
 }
 
+@test "show_help includes Codex native runtime controls" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help
+
+    [[ "$output" == *"--sandbox"* ]]
+    [[ "$output" == *"--full-auto"* ]]
+    [[ "$output" == *"--dangerously-bypass-approvals-and-sandbox"* ]]
+    [[ "$output" == *"--profile"* ]]
+    [[ "$output" == *"--cd"* ]]
+    [[ "$output" == *"--add-dir"* ]]
+    [[ "$output" == *"--skip-git-repo-check"* ]]
+    [[ "$output" == *"--ephemeral"* ]]
+}
+
+@test "append_codex_runtime_flags includes all supported native flags in implementation" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/append_codex_runtime_flags()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *"--sandbox"* ]]
+    [[ "$output" == *"--full-auto"* ]]
+    [[ "$output" == *"--dangerously-bypass-approvals-and-sandbox"* ]]
+    [[ "$output" == *"--profile"* ]]
+    [[ "$output" == *"--cd"* ]]
+    [[ "$output" == *"--add-dir"* ]]
+    [[ "$output" == *"--skip-git-repo-check"* ]]
+    [[ "$output" == *"--ephemeral"* ]]
+}
+
+@test "build_codex_command calls append_codex_runtime_flags" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/build_codex_command()/,/^}/p' '$script' | grep -c 'append_codex_runtime_flags'"
+    assert_success
+    [[ "$output" -ge "1" ]]
+}
+
 # =============================================================================
 # BUILD_CODEX_COMMAND TESTS (TDD)
 # Tests for the fix of --prompt-file -> -p flag

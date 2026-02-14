@@ -1,8 +1,8 @@
 # Ralph Fix Plan - Self Improvement (Codex CLI Alignment)
 
 ## High Priority
-- [ ] Add CLI passthrough/config support in `ralph_loop.sh` for Codex native controls: `--sandbox`, `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`, `--profile`, `--cd`, `--add-dir`, `--skip-git-repo-check`, `--ephemeral`.
-- [ ] Add tests for new Codex native controls in `tests/unit/test_cli_parsing.bats` and `tests/unit/test_cli_modern.bats`.
+- [x] Add CLI passthrough/config support in `ralph_loop.sh` for Codex native controls: `--sandbox`, `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`, `--profile`, `--cd`, `--add-dir`, `--skip-git-repo-check`, `--ephemeral`.
+- [x] Add tests for new Codex native controls in `tests/unit/test_cli_parsing.bats` and `tests/unit/test_cli_modern.bats`.
 - [ ] Implement structured completion output path (prefer `--output-last-message` and optional `--output-schema`) and integrate with `lib/response_analyzer.sh`.
 - [ ] Add regression tests proving structured output path works and fallback path still works.
 

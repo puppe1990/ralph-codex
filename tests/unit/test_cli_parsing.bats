@@ -466,9 +466,17 @@ build_ralph_cmd_for_test() {
     local MAX_CALLS_PER_HOUR="${1:-100}"
     local PROMPT_FILE="${2:-.ralph/PROMPT.md}"
     local VERBOSE_PROGRESS="${3:-false}"
-    local CLAUDE_TIMEOUT_MINUTES="${4:-15}"
-    local CLAUDE_USE_CONTINUE="${5:-true}"
-    local CLAUDE_SESSION_EXPIRY_HOURS="${6:-24}"
+    local CODEX_TIMEOUT_MINUTES="${4:-15}"
+    local CODEX_USE_CONTINUE="${5:-true}"
+    local CODEX_SESSION_EXPIRY_HOURS="${6:-24}"
+    local CODEX_SANDBOX_MODE="${7:-}"
+    local CODEX_FULL_AUTO="${8:-false}"
+    local CODEX_DANGEROUS_BYPASS="${9:-false}"
+    local CODEX_PROFILE="${10:-}"
+    local CODEX_CWD="${11:-}"
+    local CODEX_ADD_DIRS="${12:-}"
+    local CODEX_SKIP_GIT_REPO_CHECK="${13:-false}"
+    local CODEX_EPHEMERAL="${14:-false}"
     local RALPH_DIR=".ralph"
 
     # Forward --calls if non-default
@@ -484,16 +492,48 @@ build_ralph_cmd_for_test() {
         ralph_cmd="$ralph_cmd --verbose"
     fi
     # Forward --timeout if non-default (default is 15)
-    if [[ "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
-        ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
+    if [[ "$CODEX_TIMEOUT_MINUTES" != "15" ]]; then
+        ralph_cmd="$ralph_cmd --timeout $CODEX_TIMEOUT_MINUTES"
     fi
     # Forward --no-continue if session continuity disabled
-    if [[ "$CLAUDE_USE_CONTINUE" == "false" ]]; then
+    if [[ "$CODEX_USE_CONTINUE" == "false" ]]; then
         ralph_cmd="$ralph_cmd --no-continue"
     fi
     # Forward --session-expiry if non-default (default is 24)
-    if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
-        ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
+    if [[ "$CODEX_SESSION_EXPIRY_HOURS" != "24" ]]; then
+        ralph_cmd="$ralph_cmd --session-expiry $CODEX_SESSION_EXPIRY_HOURS"
+    fi
+    if [[ -n "$CODEX_SANDBOX_MODE" ]]; then
+        ralph_cmd="$ralph_cmd --sandbox $CODEX_SANDBOX_MODE"
+    fi
+    if [[ "$CODEX_FULL_AUTO" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --full-auto"
+    fi
+    if [[ "$CODEX_DANGEROUS_BYPASS" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --dangerously-bypass-approvals-and-sandbox"
+    fi
+    if [[ -n "$CODEX_PROFILE" ]]; then
+        ralph_cmd="$ralph_cmd --profile '$CODEX_PROFILE'"
+    fi
+    if [[ -n "$CODEX_CWD" ]]; then
+        ralph_cmd="$ralph_cmd --cd '$CODEX_CWD'"
+    fi
+    if [[ -n "$CODEX_ADD_DIRS" ]]; then
+        local IFS=','
+        read -ra add_dirs_tmux <<< "$CODEX_ADD_DIRS"
+        local add_dir_tmux
+        for add_dir_tmux in "${add_dirs_tmux[@]}"; do
+            add_dir_tmux=$(echo "$add_dir_tmux" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [[ -n "$add_dir_tmux" ]]; then
+                ralph_cmd="$ralph_cmd --add-dir '$add_dir_tmux'"
+            fi
+        done
+    fi
+    if [[ "$CODEX_SKIP_GIT_REPO_CHECK" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --skip-git-repo-check"
+    fi
+    if [[ "$CODEX_EPHEMERAL" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --ephemeral"
     fi
 
     echo "$ralph_cmd"
@@ -538,4 +578,29 @@ build_ralph_cmd_for_test() {
     local result=$(build_ralph_cmd_for_test 100 ".ralph/PROMPT.md" "false" "15" "true" "24")
     # Should only be "ralph" with no extra flags
     [[ "$result" == "ralph" ]]
+}
+
+@test "monitor forwards codex sandbox/profile/cwd parameters" {
+    local result
+    result=$(build_ralph_cmd_for_test 100 ".ralph/PROMPT.md" "false" "15" "true" "24" "workspace-write" "false" "false" "ci" "/tmp")
+
+    [[ "$result" == *"--sandbox workspace-write"* ]]
+    [[ "$result" == *"--profile 'ci'"* ]]
+    [[ "$result" == *"--cd '/tmp'"* ]]
+}
+
+@test "monitor forwards multiple --add-dir entries" {
+    local result
+    result=$(build_ralph_cmd_for_test 100 ".ralph/PROMPT.md" "false" "15" "true" "24" "" "false" "false" "" "" "/repo,/repo/docs")
+
+    [[ "$result" == *"--add-dir '/repo'"* ]]
+    [[ "$result" == *"--add-dir '/repo/docs'"* ]]
+}
+
+@test "monitor forwards skip-git-repo-check and ephemeral flags" {
+    local result
+    result=$(build_ralph_cmd_for_test 100 ".ralph/PROMPT.md" "false" "15" "true" "24" "" "false" "false" "" "" "" "true" "true")
+
+    [[ "$result" == *"--skip-git-repo-check"* ]]
+    [[ "$result" == *"--ephemeral"* ]]
 }
