@@ -776,6 +776,16 @@ EOF
     assert_success
 }
 
+@test "single-instance lock variables are defined" {
+    run grep 'LOCK_DIR=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    assert_success
+}
+
+@test "single-instance lock is acquired before main loop starts" {
+    run grep -n 'acquire_instance_lock' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    assert_success
+}
+
 @test "build_claude_command is called regardless of output format in ralph_loop.sh" {
     # Verify that build_claude_command is NOT gated behind JSON-only check
     # The old pattern was: if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then build_claude_command...

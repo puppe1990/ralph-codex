@@ -77,6 +77,19 @@ EOF
     assert_equal "$output" "text"
 }
 
+@test "detect_output_format identifies Codex JSONL event stream" {
+    local output_file="$LOG_DIR/test_events.jsonl"
+
+    cat > "$output_file" << 'EOF'
+{"type":"thread.started","thread_id":"thread-123"}
+{"type":"item.completed","item":{"type":"agent_message","text":"Working..."}}
+{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":20}}
+EOF
+
+    run detect_output_format "$output_file"
+    assert_equal "$output" "jsonl"
+}
+
 @test "detect_output_format handles mixed content (JSON with surrounding text)" {
     local output_file="$LOG_DIR/test_output.log"
 
@@ -132,6 +145,24 @@ EOF
 
     local status=$(jq -r '.status' "$result_file")
     assert_equal "$status" "COMPLETE"
+}
+
+@test "parse_json_response normalizes Codex JSONL with session and completion" {
+    local output_file="$LOG_DIR/test_events.jsonl"
+
+    cat > "$output_file" << 'EOF'
+{"type":"thread.started","thread_id":"thread-xyz"}
+{"type":"item.completed","item":{"type":"agent_message","text":"Done.\n---RALPH_STATUS---\nSTATUS: COMPLETE\nEXIT_SIGNAL: true\n---END_RALPH_STATUS---"}}
+{"type":"turn.completed","usage":{"input_tokens":12,"cached_input_tokens":0,"output_tokens":34}}
+EOF
+
+    run parse_json_response "$output_file"
+    local result_file="$RALPH_DIR/.json_parse_result"
+
+    [[ -f "$result_file" ]]
+    assert_equal "$(jq -r '.session_id' "$result_file")" "thread-xyz"
+    assert_equal "$(jq -r '.status' "$result_file")" "COMPLETE"
+    assert_equal "$(jq -r '.exit_signal' "$result_file")" "true"
 }
 
 @test "parse_json_response extracts exit_signal correctly" {
@@ -367,6 +398,21 @@ EOF
     # Should still detect completion via text parsing
     local has_completion=$(jq -r '.analysis.has_completion_signal' "$RALPH_DIR/.response_analysis")
     assert_equal "$has_completion" "true"
+}
+
+@test "analyze_response parses Codex JSONL directly" {
+    local output_file="$LOG_DIR/test_events.jsonl"
+
+    cat > "$output_file" << 'EOF'
+{"type":"thread.started","thread_id":"thread-analysis-1"}
+{"type":"item.completed","item":{"type":"agent_message","text":"Implemented feature.\n---RALPH_STATUS---\nSTATUS: COMPLETE\nEXIT_SIGNAL: true\n---END_RALPH_STATUS---"}}
+{"type":"turn.completed","usage":{"input_tokens":20,"cached_input_tokens":0,"output_tokens":40}}
+EOF
+
+    analyze_response "$output_file" 1
+
+    assert_equal "$(jq -r '.output_format' "$RALPH_DIR/.response_analysis")" "jsonl"
+    assert_equal "$(jq -r '.analysis.exit_signal' "$RALPH_DIR/.response_analysis")" "true"
 }
 
 @test "analyze_response uses JSON confidence boost when available" {

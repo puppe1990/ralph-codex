@@ -25,6 +25,7 @@ LOG_DIR="$RALPH_DIR/logs"
 DOCS_DIR="$RALPH_DIR/docs/generated"
 STATUS_FILE="$RALPH_DIR/status.json"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
+LOCK_DIR="$RALPH_DIR/.lock"
 CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-codex}"
 SLEEP_DURATION=3600     # 1 hour in seconds
 LIVE_OUTPUT=false       # Show Codex CLI output in real-time (streaming)
@@ -166,6 +167,55 @@ NC='\033[0m' # No Color
 # Initialize directories
 mkdir -p "$LOG_DIR" "$DOCS_DIR"
 
+# Single-instance lock state
+LOCK_ACQUIRED=false
+
+# Acquire a per-project lock to prevent concurrent loops from corrupting state files.
+acquire_instance_lock() {
+    local pid_file="$LOCK_DIR/pid"
+
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "$$" > "$pid_file"
+        LOCK_ACQUIRED=true
+        return 0
+    fi
+
+    # Lock exists: check whether owner is still running.
+    local existing_pid=""
+    if [[ -f "$pid_file" ]]; then
+        existing_pid=$(cat "$pid_file" 2>/dev/null || echo "")
+    fi
+
+    if [[ -n "$existing_pid" && "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
+        log_status "ERROR" "Another Ralph loop is already running in this project (PID $existing_pid)."
+        log_status "INFO" "Use 'ralph --status' or stop the running process before starting a new one."
+        return 1
+    fi
+
+    # Stale lock: recover.
+    rm -f "$pid_file" 2>/dev/null || true
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "$$" > "$pid_file"
+        LOCK_ACQUIRED=true
+        log_status "WARN" "Recovered stale Ralph lock."
+        return 0
+    fi
+
+    log_status "ERROR" "Could not acquire project lock: $LOCK_DIR"
+    return 1
+}
+
+release_instance_lock() {
+    if [[ "$LOCK_ACQUIRED" != "true" ]]; then
+        return 0
+    fi
+
+    rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+    LOCK_ACQUIRED=false
+}
+
 # Check if tmux is available
 check_tmux_available() {
     if ! command -v tmux &> /dev/null; then
@@ -241,10 +291,6 @@ setup_tmux_session() {
     if [[ "$PROMPT_FILE" != "$RALPH_DIR/PROMPT.md" ]]; then
         ralph_cmd="$ralph_cmd --prompt '$PROMPT_FILE'"
     fi
-    # Forward --output-format if non-default (default is json)
-    if [[ "$CLAUDE_OUTPUT_FORMAT" != "json" ]]; then
-        ralph_cmd="$ralph_cmd --output-format $CLAUDE_OUTPUT_FORMAT"
-    fi
     # Forward --verbose if enabled
     if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
         ralph_cmd="$ralph_cmd --verbose"
@@ -252,10 +298,6 @@ setup_tmux_session() {
     # Forward --timeout if non-default (default is 15)
     if [[ "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
         ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
-    fi
-    # Forward --allowed-tools if non-default
-    if [[ "$CLAUDE_ALLOWED_TOOLS" != "Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)" ]]; then
-        ralph_cmd="$ralph_cmd --allowed-tools '$CLAUDE_ALLOWED_TOOLS'"
     fi
     # Forward --no-continue if session continuity disabled
     if [[ "$CLAUDE_USE_CONTINUE" == "false" ]]; then
@@ -452,7 +494,7 @@ should_exit_gracefully() {
             local denied_count=$(jq -r '.analysis.permission_denial_count // 0' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "0")
             local denied_cmds=$(jq -r '.analysis.denied_commands | join(", ")' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "unknown")
             log_status "WARN" "🚫 Permission denied for $denied_count command(s): $denied_cmds"
-            log_status "WARN" "Update ALLOWED_TOOLS in .ralphrc to include the required tools"
+            log_status "WARN" "Review Codex approval/sandbox policy configuration before retrying"
             echo "permission_denied"
             return 0
         fi
@@ -1144,9 +1186,13 @@ EOF
             save_claude_session "$jsonl_file"
         fi
 
-        # Analyze the response
+        # Analyze JSONL events directly when available to preserve structured signals.
         log_status "INFO" "🔍 Analyzing Codex response..."
-        analyze_response "$output_file" "$loop_count"
+        local analysis_input_file="$output_file"
+        if [[ -f "$jsonl_file" && -s "$jsonl_file" ]]; then
+            analysis_input_file="$jsonl_file"
+        fi
+        analyze_response "$analysis_input_file" "$loop_count"
         local analysis_exit_code=$?
 
         # Update exit signals based on analysis
@@ -1245,11 +1291,13 @@ cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
     reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
+    release_instance_lock
     exit 0
 }
 
 # Set up signal handlers
 trap cleanup SIGINT SIGTERM
+trap release_instance_lock EXIT
 
 # Global variable for loop count (needed by cleanup function)
 loop_count=0
@@ -1309,6 +1357,11 @@ main() {
     # Initialize session tracking before entering the loop
     init_session_tracking
 
+    # Prevent concurrent Ralph loops in the same project.
+    if ! acquire_instance_lock; then
+        exit 1
+    fi
+
     log_status "INFO" "Starting main loop..."
     
     while true; do
@@ -1354,26 +1407,13 @@ main() {
                 echo -e "${YELLOW}The coding agent was denied permission to execute commands.${NC}"
                 echo ""
                 echo -e "${YELLOW}To fix this:${NC}"
-                echo "  1. Edit .ralphrc and update ALLOWED_TOOLS to include the required tools"
-                echo "  2. Common patterns:"
-                echo "     - Bash(npm *)     - All npm commands"
-                echo "     - Bash(npm install) - Only npm install"
-                echo "     - Bash(pnpm *)    - All pnpm commands"
-                echo "     - Bash(yarn *)    - All yarn commands"
+                echo "  1. Review Codex approval/sandbox settings for this environment"
+                echo "  2. Re-run with the proper policy (example: approval_policy=\"on-request\")"
                 echo ""
                 echo -e "${YELLOW}After updating .ralphrc:${NC}"
                 echo "  ralph --reset-session  # Clear stale session state"
                 echo "  ralph --monitor        # Restart the loop"
                 echo ""
-
-                # Show current ALLOWED_TOOLS if .ralphrc exists
-                if [[ -f ".ralphrc" ]]; then
-                    local current_tools=$(grep "^ALLOWED_TOOLS=" ".ralphrc" 2>/dev/null | cut -d= -f2- | tr -d '"')
-                    if [[ -n "$current_tools" ]]; then
-                        echo -e "${BLUE}Current ALLOWED_TOOLS:${NC} $current_tools"
-                        echo ""
-                    fi
-                fi
 
                 break
             fi
@@ -1474,16 +1514,16 @@ Options:
     -s, --status            Show current status and exit
     -m, --monitor           Start with tmux session and live monitor (requires tmux)
     -v, --verbose           Show detailed progress updates during execution
-    -l, --live              Compatibility flag (live streaming currently disabled in Codex mode)
+    -l, --live              Deprecated compatibility flag (ignored; Codex runs in JSONL mode)
     -t, --timeout MIN       Set Codex execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
     --reset-session         Reset session state and exit (clears session continuity)
 
-Compatibility Options:
-    --output-format FORMAT  Compatibility option (Codex always runs with --json events)
-    --allowed-tools TOOLS   Compatibility option (tool filtering not applied in Codex mode)
+Deprecated Compatibility Options:
+    --output-format FORMAT  Deprecated no-op (Codex always runs with --json events)
+    --allowed-tools TOOLS   Deprecated no-op (tool filtering is not applied in Codex mode)
     --no-continue           Disable session continuity across loops
     --session-expiry HOURS  Set session expiration time in hours (default: $CLAUDE_SESSION_EXPIRY_HOURS)
 
@@ -1504,11 +1544,11 @@ Example workflow:
 Examples:
     $0 --calls 50 --prompt my_prompt.md
     $0 --monitor             # Start with integrated tmux monitoring
-    $0 --live                # Accepted for compatibility (runs in background mode)
-    $0 --live --verbose      # Verbose mode with compatibility live flag
+    $0 --live                # Deprecated compatibility flag (ignored)
+    $0 --live --verbose      # Verbose mode + deprecated live flag
     $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
     $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
-    $0 --output-format text     # Compatibility flag (ignored in Codex mode)
+    $0 --output-format text  # Deprecated compatibility flag (ignored)
     $0 --no-continue            # Disable session continuity
     $0 --session-expiry 48      # 48-hour session expiration
 
@@ -1549,6 +1589,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         -l|--live)
             LIVE_OUTPUT=true
+            echo "WARN: --live is deprecated in Codex mode and currently ignored." >&2
             shift
             ;;
         -t|--timeout)
@@ -1587,6 +1628,7 @@ while [[ $# -gt 0 ]]; do
         --output-format)
             if [[ "$2" == "json" || "$2" == "text" ]]; then
                 CLAUDE_OUTPUT_FORMAT="$2"
+                echo "WARN: --output-format is deprecated and has no effect in Codex mode." >&2
             else
                 echo "Error: --output-format must be 'json' or 'text'"
                 exit 1
@@ -1598,6 +1640,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CLAUDE_ALLOWED_TOOLS="$2"
+            echo "WARN: --allowed-tools is deprecated and has no effect in Codex mode." >&2
             shift 2
             ;;
         --no-continue)

@@ -29,10 +29,10 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 - **JSON output format support with automatic fallback to text parsing**
 - **Session continuity with `--resume` flag for context preservation (no session hijacking)**
 - **Session expiration with configurable timeout (default: 24 hours)**
-- **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
+- **Codex-native execution with JSONL events and `resume` thread continuity**
 - **Interactive project enablement with `ralph-enable` wizard**
 - **`.ralphrc` configuration file for project settings**
-- **Live streaming output with `--live` flag for real-time Codex CLI visibility**
+- **Structured event analysis from Codex JSONL output**
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
@@ -145,7 +145,7 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 - **Circuit Breaker** - Advanced error detection with two-stage filtering, multi-line error matching, and automatic recovery
 - **CI/CD Integration** - GitHub Actions workflow with automated testing
 - **Clean Uninstall** - Dedicated uninstall script for complete removal
-- **Live Streaming Output** - Real-time visibility into Codex CLI execution with `--live` flag
+- **Live Log File** - Execution events are written to `.ralph/live.log` for monitoring
 
 ## Quick Start
 
@@ -486,20 +486,14 @@ ralph --verbose
 ralph --monitor --verbose --timeout 30
 ```
 
-### Live Streaming Output
+### Live Output Log
 
 ```bash
-# Enable real-time visibility into Codex CLI execution
-ralph --live
-
-# Combine with monitoring for best experience
-ralph --monitor --live
-
-# Live output is written to .ralph/live.log
+# Codex event output is written to .ralph/live.log
 tail -f .ralph/live.log  # Watch in another terminal
 ```
 
-Live streaming mode shows Codex CLI's output in real-time as it works, providing visibility into what's happening during each loop iteration.
+Ralph writes Codex JSONL progress to `.ralph/live.log` while each loop executes. The legacy `--live` flag is retained only for compatibility and is ignored in Codex mode.
 
 ### Session Continuity
 
@@ -806,10 +800,10 @@ ralph [OPTIONS]
   -s, --status            Show current status and exit
   -m, --monitor           Start with tmux session and live monitor
   -v, --verbose           Show detailed progress updates during execution
-  -l, --live              Enable live streaming output (real-time Codex CLI visibility)
+  -l, --live              Deprecated compatibility flag (ignored in Codex mode)
   -t, --timeout MIN       Set Codex CLI execution timeout in minutes (1-120, default: 15)
-  --output-format FORMAT  Set output format: json (default) or text
-  --allowed-tools TOOLS   Set allowed tools (default: Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest))
+  --output-format FORMAT  Deprecated compatibility flag (no-op in Codex mode)
+  --allowed-tools TOOLS   Deprecated compatibility flag (no-op in Codex mode)
   --no-continue           Disable session continuity (start fresh each loop)
   --reset-circuit         Reset the circuit breaker
   --circuit-status        Show circuit breaker status
@@ -829,7 +823,7 @@ ralph --verbose              # Enable detailed progress updates
 ralph --timeout 30           # Set 30-minute execution timeout
 ralph --calls 50             # Limit to 50 API calls per hour
 ralph --reset-session        # Reset session state manually
-ralph --live                 # Enable live streaming output
+ralph --live                 # Deprecated compatibility flag (ignored)
 ralph-monitor                # Manual monitoring dashboard
 ```
 

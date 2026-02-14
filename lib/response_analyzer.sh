@@ -27,8 +27,8 @@ NO_WORK_PATTERNS=("nothing to do" "no changes" "already implemented" "up to date
 # JSON OUTPUT FORMAT DETECTION AND PARSING
 # =============================================================================
 
-# Detect output format (json or text)
-# Returns: "json" if valid JSON, "text" otherwise
+# Detect output format (json, jsonl, or text)
+# Returns: "json" for single JSON object/array, "jsonl" for Codex JSONL events, "text" otherwise
 detect_output_format() {
     local output_file=$1
 
@@ -37,20 +37,20 @@ detect_output_format() {
         return
     fi
 
-    # Check if file starts with { or [ (JSON indicators)
-    local first_char=$(head -c 1 "$output_file" 2>/dev/null | tr -d '[:space:]')
+    # Codex JSONL stream: each line is valid JSON and includes event types.
+    if jq -e . "$output_file" >/dev/null 2>&1; then
+        if grep -qE '"type"[[:space:]]*:[[:space:]]*"(thread\.started|turn\.started|item\.completed|turn\.completed|turn\.failed|error)"' "$output_file" 2>/dev/null; then
+            echo "jsonl"
+            return
+        fi
+    fi
 
-    if [[ "$first_char" != "{" && "$first_char" != "[" ]]; then
-        echo "text"
+    if jq empty "$output_file" 2>/dev/null; then
+        echo "json"
         return
     fi
 
-    # Validate as JSON using jq
-    if jq empty "$output_file" 2>/dev/null; then
-        echo "json"
-    else
-        echo "text"
-    fi
+    echo "text"
 }
 
 # Parse JSON response and extract structured fields
@@ -69,14 +69,80 @@ parse_json_response() {
         return 1
     fi
 
-    # Validate JSON first
+    local output_format
+    output_format=$(detect_output_format "$output_file")
+    if [[ "$output_format" == "text" ]]; then
+        echo "ERROR: Invalid JSON in output file" >&2
+        return 1
+    fi
+
+    # Normalize Codex JSONL events to a single object expected by downstream logic.
+    if [[ "$output_format" == "jsonl" ]]; then
+        normalized_file=$(mktemp)
+        jq -s '
+            def file_paths:
+                [
+                    .[] |
+                    select(.type == "item.completed" and .item.type == "file_change" and .item.status == "completed") |
+                    (.item.changes // [])[]? |
+                    .path
+                ] | unique;
+            def error_events:
+                [
+                    .[] |
+                    select(
+                        .type == "turn.failed" or
+                        .type == "error" or
+                        (.type == "item.completed" and .item.type == "error") or
+                        (.type == "item.completed" and .item.type == "command_execution" and .item.status == "failed") or
+                        (.type == "item.completed" and .item.type == "mcp_tool_call" and .item.status == "failed")
+                    )
+                ];
+            def permission_denials:
+                [
+                    .[] |
+                    select(
+                        .type == "item.completed" and
+                        (
+                            (.item.type == "command_execution" and .item.status == "failed" and ((.item.aggregated_output // "" | ascii_downcase | test("permission|denied|approval|sandbox")))) or
+                            (.item.type == "mcp_tool_call" and .item.status == "failed" and ((.item.error.message // "" | ascii_downcase | test("permission|denied|approval|sandbox"))))
+                        )
+                    ) |
+                    if .item.type == "command_execution" then
+                        {tool_name: "Bash", tool_input: {command: (.item.command // "")}}
+                    else
+                        {tool_name: (.item.tool // "mcp_tool")}
+                    end
+                ];
+            {
+                status: (if any(.[]; .type == "turn.completed") then "COMPLETE" else "UNKNOWN" end),
+                exit_signal: false,
+                work_type: "UNKNOWN",
+                files_modified: (file_paths | length),
+                error_count: (error_events | length),
+                result: ([ .[] | select(.type == "item.completed" and .item.type == "agent_message") | .item.text ] | last // ""),
+                sessionId: ([ .[] | select(.type == "thread.started") | .thread_id ] | first // ""),
+                metadata: {
+                    completion_status: (if any(.[]; .type == "turn.completed") then "complete" else "" end),
+                    files_changed: (file_paths | length),
+                    has_errors: ((error_events | length) > 0),
+                    progress_indicators: ([ .[] | select(.type == "item.completed") | .type ])
+                },
+                permission_denials: permission_denials
+            }
+        ' "$output_file" > "$normalized_file"
+
+        output_file="$normalized_file"
+    fi
+
+    # Validate normalized JSON
     if ! jq empty "$output_file" 2>/dev/null; then
         echo "ERROR: Invalid JSON in output file" >&2
         return 1
     fi
 
-    # Check if JSON is an array (Claude CLI array format)
-    # Claude CLI outputs: [{type: "system", ...}, {type: "assistant", ...}, {type: "result", ...}]
+    # Check if JSON is an array (legacy Claude CLI array format)
+    # Legacy array format: [{type: "system", ...}, {type: "assistant", ...}, {type: "result", ...}]
     if jq -e 'type == "array"' "$output_file" >/dev/null 2>&1; then
         normalized_file=$(mktemp)
 
@@ -328,7 +394,7 @@ analyze_response() {
     # Detect output format and try JSON parsing first
     local output_format=$(detect_output_format "$output_file")
 
-    if [[ "$output_format" == "json" ]]; then
+    if [[ "$output_format" == "json" || "$output_format" == "jsonl" ]]; then
         # Try JSON parsing
         if parse_json_response "$output_file" "$RALPH_DIR/.json_parse_result" 2>/dev/null; then
             # Extract values from JSON parse result
@@ -402,7 +468,7 @@ analyze_response() {
                 --argjson loop_number "$loop_number" \
                 --arg timestamp "$(get_iso_timestamp)" \
                 --arg output_file "$output_file" \
-                --arg output_format "json" \
+                --arg output_format "$output_format" \
                 --argjson has_completion_signal "$has_completion_signal" \
                 --argjson is_test_only "$is_test_only" \
                 --argjson is_stuck "$is_stuck" \
