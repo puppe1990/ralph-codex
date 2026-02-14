@@ -7,7 +7,7 @@ set -e  # Exit on any error
 
 # Note: CLAUDE_CODE_ENABLE_DANGEROUS_PERMISSIONS_IN_SANDBOX and IS_SANDBOX
 # environment variables are NOT exported here. Tool restrictions are handled
-# via --allowedTools flag in CLAUDE_CMD_ARGS, which is the proper approach.
+# via --allowedTools flag in CODEX_CMD_ARGS, which is the proper approach.
 # Exporting sandbox variables without a verified sandbox would be misleading.
 
 # Source library components
@@ -339,16 +339,16 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --verbose"
     fi
     # Forward --timeout if non-default (default is 15)
-    if [[ "$CLAUDE_TIMEOUT_MINUTES" != "15" ]]; then
-        ralph_cmd="$ralph_cmd --timeout $CLAUDE_TIMEOUT_MINUTES"
+    if [[ "$CODEX_TIMEOUT_MINUTES" != "15" ]]; then
+        ralph_cmd="$ralph_cmd --timeout $CODEX_TIMEOUT_MINUTES"
     fi
     # Forward --no-continue if session continuity disabled
-    if [[ "$CLAUDE_USE_CONTINUE" == "false" ]]; then
+    if [[ "$CODEX_USE_CONTINUE" == "false" ]]; then
         ralph_cmd="$ralph_cmd --no-continue"
     fi
     # Forward --session-expiry if non-default (default is 24)
-    if [[ "$CLAUDE_SESSION_EXPIRY_HOURS" != "24" ]]; then
-        ralph_cmd="$ralph_cmd --session-expiry $CLAUDE_SESSION_EXPIRY_HOURS"
+    if [[ "$CODEX_SESSION_EXPIRY_HOURS" != "24" ]]; then
+        ralph_cmd="$ralph_cmd --session-expiry $CODEX_SESSION_EXPIRY_HOURS"
     fi
     # Forward --auto-reset-circuit if enabled
     if [[ "$CB_AUTO_RESET" == "true" ]]; then
@@ -610,7 +610,7 @@ should_exit_gracefully() {
 
 # Check Codex CLI version for compatibility with modern flags
 check_codex_version() {
-    local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    local version=$($CODEX_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
     if [[ -z "$version" ]]; then
         log_status "WARN" "Cannot detect Codex CLI version, assuming compatible"
@@ -618,7 +618,7 @@ check_codex_version() {
     fi
 
     # Compare versions (simplified semver comparison)
-    local required="$CLAUDE_MIN_VERSION"
+    local required="$CODEX_MIN_VERSION"
 
     # Convert to comparable integers (major * 10000 + minor * 100 + patch)
     local ver_parts=(${version//./ })
@@ -774,7 +774,7 @@ get_session_file_age_hours() {
 # Initialize or resume Codex thread session (with expiration check)
 #
 # Session Expiration Strategy:
-# - Default expiration: 24 hours (configurable via CLAUDE_SESSION_EXPIRY_HOURS)
+# - Default expiration: 24 hours (configurable via CODEX_SESSION_EXPIRY_HOURS)
 # - 24 hours chosen because: long enough for multi-day projects, short enough
 #   to prevent stale context from causing unpredictable behavior
 # - Sessions auto-expire to ensure Codex CLI starts fresh periodically
@@ -786,31 +786,31 @@ get_session_file_age_hours() {
 # Return codes:
 #   - 0: Always returns success (caller should check stdout for session ID)
 #
-init_claude_session() {
-    if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
+init_codex_session() {
+    if [[ -f "$CODEX_SESSION_FILE" ]]; then
         # Check session age
         local age_hours
-        age_hours=$(get_session_file_age_hours "$CLAUDE_SESSION_FILE")
+        age_hours=$(get_session_file_age_hours "$CODEX_SESSION_FILE")
 
         # Handle stat failure (-1) - treat as needing new session
         # Don't expire sessions when we can't determine age
         if [[ $age_hours -eq -1 ]]; then
             log_status "WARN" "Could not determine session age, starting new session"
-            rm -f "$CLAUDE_SESSION_FILE"
+            rm -f "$CODEX_SESSION_FILE"
             echo ""
             return 0
         fi
 
         # Check if session has expired
-        if [[ $age_hours -ge $CLAUDE_SESSION_EXPIRY_HOURS ]]; then
-            log_status "INFO" "Session expired (${age_hours}h old, max ${CLAUDE_SESSION_EXPIRY_HOURS}h), starting new session"
-            rm -f "$CLAUDE_SESSION_FILE"
+        if [[ $age_hours -ge $CODEX_SESSION_EXPIRY_HOURS ]]; then
+            log_status "INFO" "Session expired (${age_hours}h old, max ${CODEX_SESSION_EXPIRY_HOURS}h), starting new session"
+            rm -f "$CODEX_SESSION_FILE"
             echo ""
             return 0
         fi
 
         # Session is valid, try to read it
-        local session_id=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
+        local session_id=$(cat "$CODEX_SESSION_FILE" 2>/dev/null)
         if [[ -n "$session_id" ]]; then
             log_status "INFO" "Resuming Codex thread: ${session_id:0:20}... (${age_hours}h old)"
             echo "$session_id"
@@ -823,7 +823,7 @@ init_claude_session() {
 }
 
 # Save session ID after successful execution
-save_claude_session() {
+save_codex_session() {
     local output_file=$1
 
     # Try to extract session ID from Codex JSONL output first
@@ -839,7 +839,7 @@ save_claude_session() {
         fi
 
         if [[ -n "$session_id" && "$session_id" != "null" ]]; then
-            echo "$session_id" > "$CLAUDE_SESSION_FILE"
+            echo "$session_id" > "$CODEX_SESSION_FILE"
             log_status "INFO" "Saved Codex thread: ${session_id:0:20}..."
         fi
     fi
@@ -895,7 +895,7 @@ reset_session() {
         }' > "$RALPH_SESSION_FILE"
 
     # Also clear the Codex CLI session file for consistency
-    rm -f "$CLAUDE_SESSION_FILE" 2>/dev/null
+    rm -f "$CODEX_SESSION_FILE" 2>/dev/null
 
     # Clear exit signals to prevent stale completion indicators from causing premature exit (issue #91)
     # This ensures a fresh start without leftover state from previous sessions
@@ -1046,18 +1046,18 @@ update_session_last_used() {
 }
 
 # Global array for Codex command arguments (avoids shell injection)
-declare -a CLAUDE_CMD_ARGS=()
+declare -a CODEX_CMD_ARGS=()
 
 # Build Codex CLI command with modern flags using array (shell-injection safe)
-# Populates global CLAUDE_CMD_ARGS array for direct execution
+# Populates global CODEX_CMD_ARGS array for direct execution
 # Uses positional prompt argument for codex exec / codex exec resume
-build_claude_command() {
+build_codex_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
 
     # Reset global array
-    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD" "exec")
+    CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec")
 
     # Check if prompt file exists
     if [[ ! -f "$prompt_file" ]]; then
@@ -1066,11 +1066,11 @@ build_claude_command() {
     fi
 
     # Codex only supports JSONL structured output for machine parsing
-    CLAUDE_CMD_ARGS+=("--json")
+    CODEX_CMD_ARGS+=("--json")
 
     # If session continuity is enabled and we have a thread id, switch to "exec resume"
-    if [[ "$CLAUDE_USE_CONTINUE" == "true" && -n "$session_id" ]]; then
-        CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD" "exec" "resume" "--json" "$session_id")
+    if [[ "$CODEX_USE_CONTINUE" == "true" && -n "$session_id" ]]; then
+        CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "$session_id")
     fi
 
     # Read prompt file content and append loop context inline
@@ -1087,11 +1087,16 @@ EOF
 )
     fi
 
-    CLAUDE_CMD_ARGS+=("$prompt_content")
+    CODEX_CMD_ARGS+=("$prompt_content")
+}
+
+# Backward-compatible aliases for older tests/scripts.
+build_claude_command() {
+    build_codex_command "$@"
 }
 
 # Main execution function
-execute_claude_code() {
+execute_codex_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
     local output_file="$LOG_DIR/codex_output_${timestamp}.log"
     local jsonl_file="$LOG_DIR/codex_events_${timestamp}.jsonl"
@@ -1109,12 +1114,12 @@ execute_claude_code() {
     echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
 
     log_status "LOOP" "Executing Codex CLI (Call $calls_made/$MAX_CALLS_PER_HOUR)"
-    local timeout_seconds=$((CLAUDE_TIMEOUT_MINUTES * 60))
-    log_status "INFO" "⏳ Starting Codex CLI execution... (timeout: ${CLAUDE_TIMEOUT_MINUTES}m)"
+    local timeout_seconds=$((CODEX_TIMEOUT_MINUTES * 60))
+    log_status "INFO" "⏳ Starting Codex CLI execution... (timeout: ${CODEX_TIMEOUT_MINUTES}m)"
 
     # Build loop context for session continuity
     local loop_context=""
-    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
+    if [[ "$CODEX_USE_CONTINUE" == "true" ]]; then
         loop_context=$(build_loop_context "$loop_count")
         if [[ -n "$loop_context" && "$VERBOSE_PROGRESS" == "true" ]]; then
             log_status "INFO" "Loop context: $loop_context"
@@ -1123,8 +1128,8 @@ execute_claude_code() {
 
     # Initialize or resume session (Codex thread id)
     local session_id=""
-    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-        session_id=$(init_claude_session)
+    if [[ "$CODEX_USE_CONTINUE" == "true" ]]; then
+        session_id=$(init_codex_session)
     fi
 
     # Codex is executed in JSONL mode and converted to message text post-run.
@@ -1134,7 +1139,7 @@ execute_claude_code() {
         LIVE_OUTPUT=false
     fi
 
-    if ! build_claude_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+    if ! build_codex_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
         log_status "ERROR" "❌ Failed to build Codex CLI command"
         return 1
     fi
@@ -1145,7 +1150,7 @@ execute_claude_code() {
     # Initialize live.log for this execution
     echo -e "\n\n=== Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
     # BACKGROUND MODE with progress monitoring
-    if portable_timeout ${timeout_seconds}s "${CLAUDE_CMD_ARGS[@]}" < /dev/null > "$jsonl_file" 2> "$stderr_file" &
+    if portable_timeout ${timeout_seconds}s "${CODEX_CMD_ARGS[@]}" < /dev/null > "$jsonl_file" 2> "$stderr_file" &
     then
         :  # Continue to wait loop
     else
@@ -1230,8 +1235,8 @@ EOF
         log_status "SUCCESS" "✅ Codex CLI execution completed successfully"
 
         # Save thread ID from Codex JSONL output (session continuity)
-        if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-            save_claude_session "$jsonl_file"
+        if [[ "$CODEX_USE_CONTINUE" == "true" ]]; then
+            save_codex_session "$jsonl_file"
         fi
 
         # Analyze JSONL events directly when available to preserve structured signals.
@@ -1332,6 +1337,19 @@ EOF
             return 1
         fi
     fi
+}
+
+# Backward-compatible aliases for older tests/scripts.
+init_claude_session() {
+    init_codex_session "$@"
+}
+
+save_claude_session() {
+    save_codex_session "$@"
+}
+
+execute_claude_code() {
+    execute_codex_code "$@"
 }
 
 # Cleanup function
@@ -1483,7 +1501,7 @@ main() {
         update_status "$loop_count" "$calls_made" "executing" "running"
         
         # Execute Codex CLI
-        execute_claude_code "$loop_count"
+        execute_codex_code "$loop_count"
         local exec_result=$?
         
         if [ $exec_result -eq 0 ]; then
@@ -1563,7 +1581,7 @@ Options:
     -m, --monitor           Start with tmux session and live monitor (requires tmux)
     -v, --verbose           Show detailed progress updates during execution
     -l, --live              Deprecated compatibility flag (ignored; Codex runs in JSONL mode)
-    -t, --timeout MIN       Set Codex execution timeout in minutes (default: $CLAUDE_TIMEOUT_MINUTES)
+    -t, --timeout MIN       Set Codex execution timeout in minutes (default: $CODEX_TIMEOUT_MINUTES)
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
@@ -1573,7 +1591,7 @@ Deprecated Compatibility Options:
     --output-format FORMAT  Deprecated no-op (Codex always runs with --json events)
     --allowed-tools TOOLS   Deprecated no-op (tool filtering is not applied in Codex mode)
     --no-continue           Disable session continuity across loops
-    --session-expiry HOURS  Set session expiration time in hours (default: $CLAUDE_SESSION_EXPIRY_HOURS)
+    --session-expiry HOURS  Set session expiration time in hours (default: $CODEX_SESSION_EXPIRY_HOURS)
 
 Files created:
     - $LOG_DIR/: All execution logs
@@ -1643,7 +1661,7 @@ while [[ $# -gt 0 ]]; do
         -t|--timeout)
             if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
                 CODEX_TIMEOUT_MINUTES="$2"
-                CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
+                CODEX_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
             else
                 echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
                 exit 1
@@ -1696,7 +1714,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-continue)
             CODEX_USE_CONTINUE=false
-            CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
+            CODEX_USE_CONTINUE="$CODEX_USE_CONTINUE"
             shift
             ;;
         --session-expiry)
@@ -1705,7 +1723,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CODEX_SESSION_EXPIRY_HOURS="$2"
-            CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
+            CODEX_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
             shift 2
             ;;
         --auto-reset-circuit)

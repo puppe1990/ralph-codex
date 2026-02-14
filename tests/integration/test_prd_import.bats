@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # Integration tests for ralph-import command functionality
-# Tests PRD to Ralph format conversion with mocked Claude Code CLI
+# Tests PRD to Ralph format conversion with mocked Codex CLI
 
 load '../helpers/test_helper'
 load '../helpers/mocks'
@@ -83,12 +83,12 @@ echo "Created Ralph project: $project_name"
 MOCK_SETUP_EOF
     chmod +x "$MOCK_BIN_DIR/ralph-setup"
 
-    # Create mock claude command for PRD conversion
+    # Create mock codex command for PRD conversion
     # Default behavior: create the expected output files
-    create_mock_claude_success
+    create_mock_codex_success
 
     # Export environment variables
-    export CLAUDE_CODE_CMD="claude"
+    export CODEX_CODE_CMD="codex"
 }
 
 teardown() {
@@ -101,15 +101,15 @@ teardown() {
     fi
 }
 
-# Helper: Create mock claude command that succeeds
-create_mock_claude_success() {
-    cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_EOF'
+# Helper: Create mock codex command that succeeds
+create_mock_codex_success() {
+    cat > "$MOCK_BIN_DIR/codex" << 'MOCK_CODEX_EOF'
 #!/bin/bash
-# Mock Claude Code CLI that creates expected output files in .ralph/ subfolder
+# Mock Codex CLI that creates expected output files in .ralph/ subfolder
 
 # Handle --version flag first (before reading stdin)
 if [[ "$1" == "--version" ]]; then
-    echo "Claude Code CLI version 2.0.80"
+    echo "Codex CLI version 2.0.80"
     exit 0
 fi
 
@@ -254,28 +254,28 @@ cat > .ralph/specs/requirements.md << 'EOF'
 - Input validation on all endpoints
 EOF
 
-echo "Mock: Claude Code conversion completed successfully"
+echo "Mock: Codex CLI conversion completed successfully"
 exit 0
-MOCK_CLAUDE_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+MOCK_CODEX_EOF
+    chmod +x "$MOCK_BIN_DIR/codex"
 }
 
-# Helper: Create mock claude command that fails
-create_mock_claude_failure() {
-    cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_FAIL_EOF'
+# Helper: Create mock codex command that fails
+create_mock_codex_failure() {
+    cat > "$MOCK_BIN_DIR/codex" << 'MOCK_CODEX_FAIL_EOF'
 #!/bin/bash
-# Mock Claude Code CLI that fails
+# Mock Codex CLI that fails
 
 # Handle --version flag first
 if [[ "$1" == "--version" ]]; then
-    echo "Claude Code CLI version 2.0.80"
+    echo "Codex CLI version 2.0.80"
     exit 0
 fi
 
-echo "Error: Mock Claude Code failed"
+echo "Error: Mock Codex CLI failed"
 exit 1
-MOCK_CLAUDE_FAIL_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+MOCK_CODEX_FAIL_EOF
+    chmod +x "$MOCK_BIN_DIR/codex"
 }
 
 # Helper: Remove ralph-setup from mock bin (simulate not installed)
@@ -511,11 +511,11 @@ remove_ralph_setup_mock() {
 }
 
 # Test 11: ralph-import conversion failure handling
-@test "ralph-import handles Claude Code conversion failure gracefully" {
+@test "ralph-import handles Codex CLI conversion failure gracefully" {
     create_sample_prd_md "test-app.md"
 
     # Set up mock to fail
-    create_mock_claude_failure
+    create_mock_codex_failure
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "test-app.md"
 
@@ -711,15 +711,15 @@ EOF
 # Tests for --output-format json, --allowedTools, and JSON response parsing
 # =============================================================================
 
-# Helper: Create mock claude command that outputs JSON format
-create_mock_claude_json_success() {
-    cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_JSON_EOF'
+# Helper: Create mock codex command that outputs JSON format
+create_mock_codex_json_success() {
+    cat > "$MOCK_BIN_DIR/codex" << 'MOCK_CODEX_JSON_EOF'
 #!/bin/bash
-# Mock Claude Code CLI that outputs JSON format and creates expected files in .ralph/
+# Mock Codex CLI that outputs JSON format and creates expected files in .ralph/
 
 # Handle --version flag first
 if [[ "$1" == "--version" ]]; then
-    echo "Claude Code CLI version 2.0.80"
+    echo "Codex CLI version 2.0.80"
     exit 0
 fi
 
@@ -793,19 +793,19 @@ cat << 'JSON_OUTPUT'
 JSON_OUTPUT
 
 exit 0
-MOCK_CLAUDE_JSON_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+MOCK_CODEX_JSON_EOF
+    chmod +x "$MOCK_BIN_DIR/codex"
 }
 
-# Helper: Create mock claude command with JSON output but partial file creation
-create_mock_claude_json_partial() {
-    cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_PARTIAL_EOF'
+# Helper: Create mock codex command with JSON output but partial file creation
+create_mock_codex_json_partial() {
+    cat > "$MOCK_BIN_DIR/codex" << 'MOCK_CODEX_PARTIAL_EOF'
 #!/bin/bash
-# Mock Claude Code CLI that outputs JSON but only creates some files in .ralph/
+# Mock Codex CLI that outputs JSON but only creates some files in .ralph/
 
 # Handle --version flag first
 if [[ "$1" == "--version" ]]; then
-    echo "Claude Code CLI version 2.0.80"
+    echo "Codex CLI version 2.0.80"
     exit 0
 fi
 
@@ -838,19 +838,19 @@ cat << 'JSON_OUTPUT'
 JSON_OUTPUT
 
 exit 0
-MOCK_CLAUDE_PARTIAL_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+MOCK_CODEX_PARTIAL_EOF
+    chmod +x "$MOCK_BIN_DIR/codex"
 }
 
-# Helper: Create mock claude command with JSON error output
-create_mock_claude_json_error() {
-    cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_JSON_ERROR_EOF'
+# Helper: Create mock codex command with JSON error output
+create_mock_codex_json_error() {
+    cat > "$MOCK_BIN_DIR/codex" << 'MOCK_CODEX_JSON_ERROR_EOF'
 #!/bin/bash
-# Mock Claude Code CLI that outputs JSON error response
+# Mock Codex CLI that outputs JSON error response
 
 # Handle --version flag first
 if [[ "$1" == "--version" ]]; then
-    echo "Claude Code CLI version 2.0.80"
+    echo "Codex CLI version 2.0.80"
     exit 0
 fi
 
@@ -872,19 +872,19 @@ cat << 'JSON_OUTPUT'
 JSON_OUTPUT
 
 exit 1
-MOCK_CLAUDE_JSON_ERROR_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+MOCK_CODEX_JSON_ERROR_EOF
+    chmod +x "$MOCK_BIN_DIR/codex"
 }
 
-# Helper: Create mock claude that returns text (backward compatibility)
-create_mock_claude_text_output() {
-    cat > "$MOCK_BIN_DIR/claude" << 'MOCK_CLAUDE_TEXT_EOF'
+# Helper: Create mock codex that returns text (backward compatibility)
+create_mock_codex_text_output() {
+    cat > "$MOCK_BIN_DIR/codex" << 'MOCK_CODEX_TEXT_EOF'
 #!/bin/bash
-# Mock Claude Code CLI that outputs text (older CLI version) - files in .ralph/
+# Mock Codex CLI that outputs text (older CLI version) - files in .ralph/
 
 # Handle --version flag first
 if [[ "$1" == "--version" ]]; then
-    echo "Claude Code CLI version 2.0.80"
+    echo "Codex CLI version 2.0.80"
     exit 0
 fi
 
@@ -919,17 +919,17 @@ Basic technical requirements.
 EOF
 
 # Output plain text (no JSON)
-echo "Mock: Claude Code conversion completed successfully"
+echo "Mock: Codex CLI conversion completed successfully"
 echo "Created: .ralph/PROMPT.md, .ralph/fix_plan.md, .ralph/specs/requirements.md"
 exit 0
-MOCK_CLAUDE_TEXT_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+MOCK_CODEX_TEXT_EOF
+    chmod +x "$MOCK_BIN_DIR/codex"
 }
 
 # Test 23: ralph-import parses JSON output format successfully
-@test "ralph-import parses JSON output from Claude CLI" {
+@test "ralph-import parses JSON output from Codex CLI" {
     create_sample_prd_md "json-test.md"
-    create_mock_claude_json_success
+    create_mock_codex_json_success
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "json-test.md"
 
@@ -944,7 +944,7 @@ MOCK_CLAUDE_TEXT_EOF
 # Test 24: ralph-import handles JSON partial success response
 @test "ralph-import handles JSON partial success and warns about missing files" {
     create_sample_prd_md "partial-test.md"
-    create_mock_claude_json_partial
+    create_mock_codex_json_partial
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "partial-test.md"
 
@@ -961,7 +961,7 @@ MOCK_CLAUDE_TEXT_EOF
 # Test 25: ralph-import handles JSON error response gracefully
 @test "ralph-import handles JSON error response with structured error message" {
     create_sample_prd_md "error-test.md"
-    create_mock_claude_json_error
+    create_mock_codex_json_error
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "error-test.md"
 
@@ -975,7 +975,7 @@ MOCK_CLAUDE_TEXT_EOF
 # Test 26: ralph-import maintains backward compatibility with text output
 @test "ralph-import works with text output (backward compatibility)" {
     create_sample_prd_md "text-test.md"
-    create_mock_claude_text_output
+    create_mock_codex_text_output
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "text-test.md"
 
@@ -990,7 +990,7 @@ MOCK_CLAUDE_TEXT_EOF
 # Test 27: ralph-import cleans up JSON output file after processing
 @test "ralph-import cleans up temporary JSON output file" {
     create_sample_prd_md "cleanup-test.md"
-    create_mock_claude_json_success
+    create_mock_codex_json_success
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "cleanup-test.md"
 
@@ -1006,7 +1006,7 @@ MOCK_CLAUDE_TEXT_EOF
 # Test 28: ralph-import detects JSON vs text output format correctly
 @test "ralph-import detects output format and uses appropriate parsing" {
     create_sample_prd_md "format-test.md"
-    create_mock_claude_json_success
+    create_mock_codex_json_success
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "format-test.md"
 
@@ -1019,7 +1019,7 @@ MOCK_CLAUDE_TEXT_EOF
 # Test 29: ralph-import extracts session ID from JSON response
 @test "ralph-import extracts and stores session ID from JSON response" {
     create_sample_prd_md "session-test.md"
-    create_mock_claude_json_success
+    create_mock_codex_json_success
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "session-test.md"
 
@@ -1033,7 +1033,7 @@ MOCK_CLAUDE_TEXT_EOF
 # Test 30: ralph-import reports file creation status from JSON metadata
 @test "ralph-import reports files created based on JSON metadata" {
     create_sample_prd_md "files-test.md"
-    create_mock_claude_json_success
+    create_mock_codex_json_success
 
     run bash "$PROJECT_ROOT/ralph_import.sh" "files-test.md"
 
@@ -1044,12 +1044,12 @@ MOCK_CLAUDE_TEXT_EOF
 }
 
 # Test 31: ralph-import uses modern CLI flags
-@test "ralph-import invokes Claude CLI with modern flags" {
+@test "ralph-import invokes Codex CLI with modern flags" {
     # Create a wrapper that captures the command invocation
-    cat > "$MOCK_BIN_DIR/claude" << 'CAPTURE_ARGS_EOF'
+    cat > "$MOCK_BIN_DIR/codex" << 'CAPTURE_ARGS_EOF'
 #!/bin/bash
 # Capture invocation arguments for testing
-echo "INVOCATION_ARGS: $*" >> /tmp/claude_invocation.log
+echo "INVOCATION_ARGS: $*" >> /tmp/codex_invocation.log
 
 # Ensure .ralph directory exists
 mkdir -p .ralph/specs
@@ -1084,10 +1084,10 @@ JSON_OUTPUT
 
 exit 0
 CAPTURE_ARGS_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+    chmod +x "$MOCK_BIN_DIR/codex"
 
     # Clear previous log
-    rm -f /tmp/claude_invocation.log
+    rm -f /tmp/codex_invocation.log
 
     create_sample_prd_md "cli-flags-test.md"
 
@@ -1096,25 +1096,25 @@ CAPTURE_ARGS_EOF
     assert_success
 
     # Check if modern flags were used (if invocation log exists)
-    if [[ -f "/tmp/claude_invocation.log" ]]; then
+    if [[ -f "/tmp/codex_invocation.log" ]]; then
         # Verify --output-format or similar flag was passed
-        run cat /tmp/claude_invocation.log
+        run cat /tmp/codex_invocation.log
         # The specific flags depend on implementation
         # This test ensures CLI modernization is in effect
     fi
 
     # Clean up
-    rm -f /tmp/claude_invocation.log
+    rm -f /tmp/codex_invocation.log
 }
 
 # Test 32: ralph-import handles malformed JSON gracefully
 @test "ralph-import handles malformed JSON and falls back to text parsing" {
-    cat > "$MOCK_BIN_DIR/claude" << 'MALFORMED_JSON_EOF'
+    cat > "$MOCK_BIN_DIR/codex" << 'MALFORMED_JSON_EOF'
 #!/bin/bash
 
 # Handle --version flag first
 if [[ "$1" == "--version" ]]; then
-    echo "Claude Code CLI version 2.0.80"
+    echo "Codex CLI version 2.0.80"
     exit 0
 fi
 
@@ -1143,7 +1143,7 @@ echo '{"result": "Success but json is broken'
 echo "Files created successfully"
 exit 0
 MALFORMED_JSON_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+    chmod +x "$MOCK_BIN_DIR/codex"
 
     create_sample_prd_md "malformed-test.md"
 
@@ -1158,12 +1158,12 @@ MALFORMED_JSON_EOF
 
 # Test 33: ralph-import extracts error details from JSON error response
 @test "ralph-import extracts specific error message from JSON error" {
-    cat > "$MOCK_BIN_DIR/claude" << 'DETAILED_ERROR_EOF'
+    cat > "$MOCK_BIN_DIR/codex" << 'DETAILED_ERROR_EOF'
 #!/bin/bash
 
 # Handle --version flag first
 if [[ "$1" == "--version" ]]; then
-    echo "Claude Code CLI version 2.0.80"
+    echo "Codex CLI version 2.0.80"
     exit 0
 fi
 
@@ -1186,7 +1186,7 @@ JSON_OUTPUT
 
 exit 1
 DETAILED_ERROR_EOF
-    chmod +x "$MOCK_BIN_DIR/claude"
+    chmod +x "$MOCK_BIN_DIR/codex"
 
     create_sample_prd_md "detailed-error-test.md"
 

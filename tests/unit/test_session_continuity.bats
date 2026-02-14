@@ -434,29 +434,20 @@ EOF
 }
 
 @test "init_claude_session logs expiration with age info" {
-    # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
     # Verify code structure includes age logging
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A40 -E 'init_(codex|claude)_session\(\)' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *'age_hours'* ]] && [[ "$output" == *'expired'* ]]
 }
 
 @test "init_claude_session logs session age when resuming" {
-    # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
     # Verify code structure includes resume logging
-    run grep -A50 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A50 -E 'init_(codex|claude)_session\(\)' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *'Resuming'* ]] && [[ "$output" == *'old'* ]]
 }
 
 @test "init_claude_session handles stat failure gracefully" {
-    # Source the script to get the function
-    source "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
-
     # Verify code structure handles -1 return
-    run grep -A40 'init_claude_session()' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -A40 -E 'init_(codex|claude)_session\(\)' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *"-1"* ]] && [[ "$output" == *"WARN"* ]]
 }
 

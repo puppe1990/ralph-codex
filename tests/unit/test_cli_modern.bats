@@ -24,9 +24,9 @@ setup() {
     export EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
     export CALL_COUNT_FILE="$RALPH_DIR/.call_count"
     export TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
-    export CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id"
-    export CLAUDE_MIN_VERSION="2.0.76"
-    export CLAUDE_CODE_CMD="claude"
+    export CODEX_SESSION_FILE="$RALPH_DIR/.codex_session_id"
+    export CODEX_MIN_VERSION="2.0.76"
+    export CODEX_CODE_CMD="codex"
 
     mkdir -p "$LOG_DIR" "$DOCS_DIR"
     echo "0" > "$CALL_COUNT_FILE"
@@ -62,16 +62,16 @@ setup() {
     # These are copies of the functions from ralph_loop.sh for isolated testing
     # ==========================================================================
 
-    # Check Claude CLI version for compatibility with modern flags
-    check_claude_version() {
-        local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    # Check Codex CLI version for compatibility with modern flags
+    check_codex_version() {
+        local version=$($CODEX_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
         if [[ -z "$version" ]]; then
-            log_status "WARN" "Cannot detect Claude CLI version, assuming compatible"
+            log_status "WARN" "Cannot detect Codex CLI version, assuming compatible"
             return 0
         fi
 
-        local required="$CLAUDE_MIN_VERSION"
+        local required="$CODEX_MIN_VERSION"
         local ver_parts=(${version//./ })
         local req_parts=(${required//./ })
 
@@ -79,14 +79,14 @@ setup() {
         local req_num=$((${req_parts[0]:-0} * 10000 + ${req_parts[1]:-0} * 100 + ${req_parts[2]:-0}))
 
         if [[ $ver_num -lt $req_num ]]; then
-            log_status "WARN" "Claude CLI version $version < $required. Some modern features may not work."
+            log_status "WARN" "Codex CLI version $version < $required. Some modern features may not work."
             return 1
         fi
 
         return 0
     }
 
-    # Build loop context for Claude Code session
+    # Build loop context for Codex CLI session
     build_loop_context() {
         local loop_count=$1
         local context=""
@@ -115,30 +115,30 @@ setup() {
         echo "${context:0:500}"
     }
 
-    # Initialize or resume Claude session
-    init_claude_session() {
-        if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
-            local session_id=$(cat "$CLAUDE_SESSION_FILE" 2>/dev/null)
+    # Initialize or resume Codex session
+    init_codex_session() {
+        if [[ -f "$CODEX_SESSION_FILE" ]]; then
+            local session_id=$(cat "$CODEX_SESSION_FILE" 2>/dev/null)
             if [[ -n "$session_id" ]]; then
-                log_status "INFO" "Resuming Claude session: ${session_id:0:20}..."
+                log_status "INFO" "Resuming Codex session: ${session_id:0:20}..."
                 echo "$session_id"
                 return 0
             fi
         fi
 
-        log_status "INFO" "Starting new Claude session"
+        log_status "INFO" "Starting new Codex session"
         echo ""
     }
 
     # Save session ID after successful execution
-    save_claude_session() {
+    save_codex_session() {
         local output_file=$1
 
         if [[ -f "$output_file" ]]; then
             local session_id=$(jq -r '.metadata.session_id // .session_id // empty' "$output_file" 2>/dev/null)
             if [[ -n "$session_id" && "$session_id" != "null" ]]; then
-                echo "$session_id" > "$CLAUDE_SESSION_FILE"
-                log_status "INFO" "Saved Claude session: ${session_id:0:20}..."
+                echo "$session_id" > "$CODEX_SESSION_FILE"
+                log_status "INFO" "Saved Codex session: ${session_id:0:20}..."
             fi
         fi
     }
@@ -199,7 +199,7 @@ teardown() {
 # CLI FLAG PARSING TESTS
 # =============================================================================
 
-@test "--output-format flag sets CLAUDE_OUTPUT_FORMAT" {
+@test "--output-format flag sets CODEX_OUTPUT_FORMAT" {
     # Simulate parsing
     run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --output-format text --help 2>&1 || true"
 
@@ -214,7 +214,7 @@ teardown() {
     [[ $status -ne 0 ]] || [[ "$output" == *"invalid"* ]] || skip "--output-format validation not yet implemented"
 }
 
-@test "--allowed-tools flag sets CLAUDE_ALLOWED_TOOLS" {
+@test "--allowed-tools flag sets CODEX_ALLOWED_TOOLS" {
     run bash -c "source ${BATS_TEST_DIRNAME}/../../ralph_loop.sh --allowed-tools 'Write,Read' --help 2>&1 || true"
 
     [[ "$output" != *"Unknown option"* ]] || skip "--allowed-tools flag not yet implemented"
@@ -327,24 +327,24 @@ EOF
 # SESSION MANAGEMENT TESTS
 # =============================================================================
 
-@test "init_claude_session returns empty string for new session" {
-    rm -f "$CLAUDE_SESSION_FILE"
+@test "init_codex_session returns empty string for new session" {
+    rm -f "$CODEX_SESSION_FILE"
 
-    run init_claude_session
+    run init_codex_session
 
     # Should be empty or contain just log message
     [[ -z "$output" ]] || [[ "$output" == *"new"* ]]
 }
 
-@test "init_claude_session returns existing session ID" {
-    echo "session-abc123" > "$CLAUDE_SESSION_FILE"
+@test "init_codex_session returns existing session ID" {
+    echo "session-abc123" > "$CODEX_SESSION_FILE"
 
-    run init_claude_session
+    run init_codex_session
 
     [[ "$output" == *"session-abc123"* ]]
 }
 
-@test "save_claude_session extracts session ID from JSON output" {
+@test "save_codex_session extracts session ID from JSON output" {
     local output_file="$LOG_DIR/test_output.log"
 
     cat > "$output_file" << 'EOF'
@@ -356,15 +356,15 @@ EOF
 }
 EOF
 
-    save_claude_session "$output_file"
+    save_codex_session "$output_file"
 
     # Should save session ID to file
-    assert_file_exists "$CLAUDE_SESSION_FILE"
-    local saved=$(cat "$CLAUDE_SESSION_FILE")
+    assert_file_exists "$CODEX_SESSION_FILE"
+    local saved=$(cat "$CODEX_SESSION_FILE")
     assert_equal "$saved" "new-session-xyz789"
 }
 
-@test "save_claude_session does nothing if no session_id in output" {
+@test "save_codex_session does nothing if no session_id in output" {
     local output_file="$LOG_DIR/test_output.log"
 
     cat > "$output_file" << 'EOF'
@@ -373,44 +373,44 @@ EOF
 }
 EOF
 
-    rm -f "$CLAUDE_SESSION_FILE"
+    rm -f "$CODEX_SESSION_FILE"
 
-    save_claude_session "$output_file"
+    save_codex_session "$output_file"
 
     # Should not create session file
-    [[ ! -f "$CLAUDE_SESSION_FILE" ]]
+    [[ ! -f "$CODEX_SESSION_FILE" ]]
 }
 
 # =============================================================================
 # VERSION CHECK TESTS
 # =============================================================================
 
-@test "check_claude_version passes for compatible version" {
-    # Mock claude command
-    function claude() {
+@test "check_codex_version passes for compatible version" {
+    # Mock codex command
+    function codex() {
         if [[ "$1" == "--version" ]]; then
-            echo "claude-code version 2.1.0"
+            echo "codex version 2.1.0"
         fi
     }
-    export -f claude
-    export CLAUDE_CODE_CMD="claude"
+    export -f codex
+    export CODEX_CODE_CMD="codex"
 
-    run check_claude_version
+    run check_codex_version
 
     assert_equal "$status" "0"
 }
 
-@test "check_claude_version warns for old version" {
-    # Mock claude command with old version
-    function claude() {
+@test "check_codex_version warns for old version" {
+    # Mock codex command with old version
+    function codex() {
         if [[ "$1" == "--version" ]]; then
-            echo "claude-code version 1.0.0"
+            echo "codex version 1.0.0"
         fi
     }
-    export -f claude
-    export CLAUDE_CODE_CMD="claude"
+    export -f codex
+    export CODEX_CODE_CMD="codex"
 
-    run check_claude_version
+    run check_codex_version
 
     # Should fail or warn
     [[ $status -ne 0 ]] || [[ "$output" == *"upgrade"* ]] || [[ "$output" == *"version"* ]]
@@ -439,22 +439,22 @@ EOF
 }
 
 # =============================================================================
-# BUILD_CLAUDE_COMMAND TESTS (TDD)
+# BUILD_CODEX_COMMAND TESTS (TDD)
 # Tests for the fix of --prompt-file -> -p flag
 # =============================================================================
 
 # Global array for Claude command arguments (mirrors ralph_loop.sh)
-declare -a CLAUDE_CMD_ARGS=()
+declare -a CODEX_CMD_ARGS=()
 
-# Define build_claude_command function for testing
+# Define build_codex_command function for testing
 # This is a copy that will be verified against the actual implementation
-build_claude_command() {
+build_codex_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
 
     # Reset global array
-    CLAUDE_CMD_ARGS=("$CLAUDE_CODE_CMD")
+    CODEX_CMD_ARGS=("$CODEX_CODE_CMD")
 
     # Check if prompt file exists
     if [[ ! -f "$prompt_file" ]]; then
@@ -463,54 +463,54 @@ build_claude_command() {
     fi
 
     # Add output format flag
-    if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then
-        CLAUDE_CMD_ARGS+=("--output-format" "json")
+    if [[ "$CODEX_OUTPUT_FORMAT" == "json" ]]; then
+        CODEX_CMD_ARGS+=("--output-format" "json")
     fi
 
     # Add allowed tools (each tool as separate array element)
-    if [[ -n "$CLAUDE_ALLOWED_TOOLS" ]]; then
-        CLAUDE_CMD_ARGS+=("--allowedTools")
+    if [[ -n "$CODEX_ALLOWED_TOOLS" ]]; then
+        CODEX_CMD_ARGS+=("--allowedTools")
         # Split by comma and add each tool
         local IFS=','
-        read -ra tools_array <<< "$CLAUDE_ALLOWED_TOOLS"
+        read -ra tools_array <<< "$CODEX_ALLOWED_TOOLS"
         for tool in "${tools_array[@]}"; do
             # Trim whitespace
             tool=$(echo "$tool" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
             if [[ -n "$tool" ]]; then
-                CLAUDE_CMD_ARGS+=("$tool")
+                CODEX_CMD_ARGS+=("$tool")
             fi
         done
     fi
 
     # Add session continuity flag
-    if [[ "$CLAUDE_USE_CONTINUE" == "true" ]]; then
-        CLAUDE_CMD_ARGS+=("--continue")
+    if [[ "$CODEX_USE_CONTINUE" == "true" ]]; then
+        CODEX_CMD_ARGS+=("--continue")
     fi
 
     # Add loop context as system prompt (no escaping needed - array handles it)
     if [[ -n "$loop_context" ]]; then
-        CLAUDE_CMD_ARGS+=("--append-system-prompt" "$loop_context")
+        CODEX_CMD_ARGS+=("--append-system-prompt" "$loop_context")
     fi
 
     # Read prompt file content and use -p flag (NOT --prompt-file which doesn't exist)
     local prompt_content
     prompt_content=$(cat "$prompt_file")
-    CLAUDE_CMD_ARGS+=("-p" "$prompt_content")
+    CODEX_CMD_ARGS+=("-p" "$prompt_content")
 }
 
-@test "build_claude_command uses -p flag instead of --prompt-file" {
-    export CLAUDE_CODE_CMD="claude"
-    export CLAUDE_OUTPUT_FORMAT="json"
-    export CLAUDE_ALLOWED_TOOLS=""
-    export CLAUDE_USE_CONTINUE="false"
+@test "build_codex_command uses -p flag instead of --prompt-file" {
+    export CODEX_CODE_CMD="codex"
+    export CODEX_OUTPUT_FORMAT="json"
+    export CODEX_ALLOWED_TOOLS=""
+    export CODEX_USE_CONTINUE="false"
 
     # Create a test prompt file
     echo "Test prompt content" > "$PROMPT_FILE"
 
-    build_claude_command "$PROMPT_FILE" "" ""
+    build_codex_command "$PROMPT_FILE" "" ""
 
     # Check that the command array contains -p, not --prompt-file
-    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+    local cmd_string="${CODEX_CMD_ARGS[*]}"
 
     # Should NOT contain --prompt-file
     [[ "$cmd_string" != *"--prompt-file"* ]]
@@ -519,51 +519,51 @@ build_claude_command() {
     [[ "$cmd_string" == *"-p"* ]]
 }
 
-@test "build_claude_command reads prompt file content correctly" {
-    export CLAUDE_CODE_CMD="claude"
-    export CLAUDE_OUTPUT_FORMAT="text"
-    export CLAUDE_ALLOWED_TOOLS=""
-    export CLAUDE_USE_CONTINUE="false"
+@test "build_codex_command reads prompt file content correctly" {
+    export CODEX_CODE_CMD="codex"
+    export CODEX_OUTPUT_FORMAT="text"
+    export CODEX_ALLOWED_TOOLS=""
+    export CODEX_USE_CONTINUE="false"
 
     # Create a test prompt file with specific content
     echo "My specific prompt content for testing" > "$PROMPT_FILE"
 
-    build_claude_command "$PROMPT_FILE" "" ""
+    build_codex_command "$PROMPT_FILE" "" ""
 
     # Check that the prompt content was read into the command
-    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+    local cmd_string="${CODEX_CMD_ARGS[*]}"
 
     [[ "$cmd_string" == *"My specific prompt content for testing"* ]]
 }
 
-@test "build_claude_command handles missing prompt file" {
-    export CLAUDE_CODE_CMD="claude"
-    export CLAUDE_OUTPUT_FORMAT="json"
-    export CLAUDE_ALLOWED_TOOLS=""
-    export CLAUDE_USE_CONTINUE="false"
+@test "build_codex_command handles missing prompt file" {
+    export CODEX_CODE_CMD="codex"
+    export CODEX_OUTPUT_FORMAT="json"
+    export CODEX_ALLOWED_TOOLS=""
+    export CODEX_USE_CONTINUE="false"
 
     # Ensure prompt file doesn't exist
     rm -f "nonexistent_prompt.md"
 
-    run build_claude_command "nonexistent_prompt.md" "" ""
+    run build_codex_command "nonexistent_prompt.md" "" ""
 
     # Should fail with error
     assert_failure
     [[ "$output" == *"ERROR"* ]] || [[ "$output" == *"not found"* ]]
 }
 
-@test "build_claude_command includes all modern CLI flags" {
-    export CLAUDE_CODE_CMD="claude"
-    export CLAUDE_OUTPUT_FORMAT="json"
-    export CLAUDE_ALLOWED_TOOLS="Write,Read,Bash(git *)"
-    export CLAUDE_USE_CONTINUE="true"
+@test "build_codex_command includes all modern CLI flags" {
+    export CODEX_CODE_CMD="codex"
+    export CODEX_OUTPUT_FORMAT="json"
+    export CODEX_ALLOWED_TOOLS="Write,Read,Bash(git *)"
+    export CODEX_USE_CONTINUE="true"
 
     # Create a test prompt file
     echo "Test prompt" > "$PROMPT_FILE"
 
-    build_claude_command "$PROMPT_FILE" "Loop #5 context" ""
+    build_codex_command "$PROMPT_FILE" "Loop #5 context" ""
 
-    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+    local cmd_string="${CODEX_CMD_ARGS[*]}"
 
     # Should include all flags
     [[ "$cmd_string" == *"--output-format"* ]]
@@ -577,11 +577,11 @@ build_claude_command() {
     [[ "$cmd_string" == *"-p"* ]]
 }
 
-@test "build_claude_command handles multiline prompt content" {
-    export CLAUDE_CODE_CMD="claude"
-    export CLAUDE_OUTPUT_FORMAT="json"
-    export CLAUDE_ALLOWED_TOOLS=""
-    export CLAUDE_USE_CONTINUE="false"
+@test "build_codex_command handles multiline prompt content" {
+    export CODEX_CODE_CMD="codex"
+    export CODEX_OUTPUT_FORMAT="json"
+    export CODEX_ALLOWED_TOOLS=""
+    export CODEX_USE_CONTINUE="false"
 
     # Create a test prompt file with multiple lines
     cat > "$PROMPT_FILE" << 'EOF'
@@ -595,14 +595,14 @@ with several lines of text.
 The prompt should be preserved correctly.
 EOF
 
-    build_claude_command "$PROMPT_FILE" "" ""
+    build_codex_command "$PROMPT_FILE" "" ""
 
     # Verify the prompt content is in the command
     local found_p_flag=false
     local prompt_index=-1
 
-    for i in "${!CLAUDE_CMD_ARGS[@]}"; do
-        if [[ "${CLAUDE_CMD_ARGS[$i]}" == "-p" ]]; then
+    for i in "${!CODEX_CMD_ARGS[@]}"; do
+        if [[ "${CODEX_CMD_ARGS[$i]}" == "-p" ]]; then
             found_p_flag=true
             prompt_index=$((i + 1))
             break
@@ -612,15 +612,15 @@ EOF
     [[ "$found_p_flag" == "true" ]]
 
     # The next element after -p should contain the multiline content
-    [[ "${CLAUDE_CMD_ARGS[$prompt_index]}" == *"multiline prompt"* ]]
-    [[ "${CLAUDE_CMD_ARGS[$prompt_index]}" == *"Expected Output"* ]]
+    [[ "${CODEX_CMD_ARGS[$prompt_index]}" == *"multiline prompt"* ]]
+    [[ "${CODEX_CMD_ARGS[$prompt_index]}" == *"Expected Output"* ]]
 }
 
-@test "build_claude_command array prevents shell injection" {
-    export CLAUDE_CODE_CMD="claude"
-    export CLAUDE_OUTPUT_FORMAT="json"
-    export CLAUDE_ALLOWED_TOOLS=""
-    export CLAUDE_USE_CONTINUE="false"
+@test "build_codex_command array prevents shell injection" {
+    export CODEX_CODE_CMD="codex"
+    export CODEX_OUTPUT_FORMAT="json"
+    export CODEX_ALLOWED_TOOLS=""
+    export CODEX_USE_CONTINUE="false"
 
     # Create a prompt with potentially dangerous shell characters
     cat > "$PROMPT_FILE" << 'EOF'
@@ -628,11 +628,11 @@ Test prompt with $(dangerous) and `backticks` and "quotes"
 Also: $VAR and ${VAR} and $(command) and ; rm -rf /
 EOF
 
-    build_claude_command "$PROMPT_FILE" "" ""
+    build_codex_command "$PROMPT_FILE" "" ""
 
     # Verify the content is preserved literally (array handles quoting)
     local found_prompt=false
-    for arg in "${CLAUDE_CMD_ARGS[@]}"; do
+    for arg in "${CODEX_CMD_ARGS[@]}"; do
         if [[ "$arg" == *'$(dangerous)'* ]]; then
             found_prompt=true
             break
@@ -644,16 +644,16 @@ EOF
 
 # =============================================================================
 # BACKGROUND EXECUTION STDIN REDIRECT TESTS
-# Newer Claude CLI reads stdin even in -p mode, causing SIGTTIN suspension
+# Newer Codex CLI reads stdin even in -p mode, causing SIGTTIN suspension
 # when the process is backgrounded. Verify /dev/null redirect is present.
 # =============================================================================
 
 @test "modern CLI background execution redirects stdin from /dev/null" {
     # Verify the implementation in ralph_loop.sh redirects stdin from /dev/null
-    # to prevent SIGTTIN suspension when claude is backgrounded.
-    # Without this, newer Claude CLI versions hang indefinitely.
+    # to prevent SIGTTIN suspension when codex is backgrounded.
+    # Without this, newer Codex CLI versions hang indefinitely.
 
-    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null.*&' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'portable_timeout.*CODEX_CMD_ARGS.*< /dev/null.*&' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     assert_success
     [[ "$output" == *'< /dev/null'* ]]
@@ -665,12 +665,12 @@ EOF
     assert_success
 }
 
-@test "all claude execution paths redirect stdin" {
+@test "all codex execution paths redirect stdin" {
     # In Codex mode we keep one execution path and it must redirect stdin.
 
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    run grep 'portable_timeout.*CLAUDE_CMD_ARGS.*< /dev/null' "$script"
+    run grep 'portable_timeout.*CODEX_CMD_ARGS.*< /dev/null' "$script"
     assert_success
 }
 
@@ -708,27 +708,27 @@ EOF
 
 # =============================================================================
 # LIVE MODE + TEXT FORMAT FIX TESTS (Issue #164)
-# Tests for: live mode format override, always-call build_claude_command,
-# and safety check for empty CLAUDE_CMD_ARGS
+# Tests for: live mode format override, always-call build_codex_command,
+# and safety check for empty CODEX_CMD_ARGS
 # =============================================================================
 
-@test "build_claude_command works for text format (populates CLAUDE_CMD_ARGS)" {
-    export CLAUDE_CODE_CMD="claude"
-    export CLAUDE_OUTPUT_FORMAT="text"
-    export CLAUDE_ALLOWED_TOOLS="Write,Read"
-    export CLAUDE_USE_CONTINUE="false"
+@test "build_codex_command works for text format (populates CODEX_CMD_ARGS)" {
+    export CODEX_CODE_CMD="codex"
+    export CODEX_OUTPUT_FORMAT="text"
+    export CODEX_ALLOWED_TOOLS="Write,Read"
+    export CODEX_USE_CONTINUE="false"
 
     echo "Test prompt content" > "$PROMPT_FILE"
 
-    build_claude_command "$PROMPT_FILE" "" ""
+    build_codex_command "$PROMPT_FILE" "" ""
 
-    # CLAUDE_CMD_ARGS should be populated even in text mode
-    [[ ${#CLAUDE_CMD_ARGS[@]} -gt 0 ]]
+    # CODEX_CMD_ARGS should be populated even in text mode
+    [[ ${#CODEX_CMD_ARGS[@]} -gt 0 ]]
 
-    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+    local cmd_string="${CODEX_CMD_ARGS[*]}"
 
-    # Should contain claude command and -p flag
-    [[ "$cmd_string" == *"claude"* ]]
+    # Should contain codex command and -p flag
+    [[ "$cmd_string" == *"codex"* ]]
     [[ "$cmd_string" == *"-p"* ]]
     [[ "$cmd_string" == *"Test prompt content"* ]]
 
@@ -740,17 +740,17 @@ EOF
     [[ "$cmd_string" == *"Write"* ]]
 }
 
-@test "build_claude_command works for json format (includes --output-format json)" {
-    export CLAUDE_CODE_CMD="claude"
-    export CLAUDE_OUTPUT_FORMAT="json"
-    export CLAUDE_ALLOWED_TOOLS=""
-    export CLAUDE_USE_CONTINUE="false"
+@test "build_codex_command works for json format (includes --output-format json)" {
+    export CODEX_CODE_CMD="codex"
+    export CODEX_OUTPUT_FORMAT="json"
+    export CODEX_ALLOWED_TOOLS=""
+    export CODEX_USE_CONTINUE="false"
 
     echo "Test prompt" > "$PROMPT_FILE"
 
-    build_claude_command "$PROMPT_FILE" "" ""
+    build_codex_command "$PROMPT_FILE" "" ""
 
-    local cmd_string="${CLAUDE_CMD_ARGS[*]}"
+    local cmd_string="${CODEX_CMD_ARGS[*]}"
 
     # Should contain --output-format json
     [[ "$cmd_string" == *"--output-format"* ]]
@@ -766,11 +766,11 @@ EOF
 }
 
 @test "Codex command always uses --json events output" {
-    run grep 'CLAUDE_CMD_ARGS+=(\"--json\")' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'CODEX_CMD_ARGS+=(\"--json\")' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     assert_success
 }
 
-@test "safety check prevents live mode with empty CLAUDE_CMD_ARGS" {
+@test "safety check prevents live mode with empty CODEX_CMD_ARGS" {
     # In Codex mode live path is disabled before execution, which is the safety mechanism.
     run grep 'LIVE_OUTPUT=false' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     assert_success
@@ -786,18 +786,18 @@ EOF
     assert_success
 }
 
-@test "build_claude_command is called regardless of output format in ralph_loop.sh" {
-    # Verify that build_claude_command is NOT gated behind JSON-only check
-    # The old pattern was: if [[ "$CLAUDE_OUTPUT_FORMAT" == "json" ]]; then build_claude_command...
-    # The new pattern should call build_claude_command unconditionally
+@test "build_codex_command is called regardless of output format in ralph_loop.sh" {
+    # Verify that build_codex_command is NOT gated behind JSON-only check
+    # The old pattern was: if [[ "$CODEX_OUTPUT_FORMAT" == "json" ]]; then build_codex_command...
+    # The new pattern should call build_codex_command unconditionally
 
-    # Check that build_claude_command call is NOT inside a JSON-only conditional
+    # Check that build_codex_command call is NOT inside a JSON-only conditional
     # Look for the actual call site (not the function definition or comments)
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    # The old pattern: "json" check immediately followed by build_claude_command
+    # The old pattern: "json" check immediately followed by build_codex_command
     # should no longer exist as a gate
-    run bash -c "sed -n '/# Build the Claude CLI command/,/# Execute Claude Code/p' '$script' | grep -c 'CLAUDE_OUTPUT_FORMAT.*json.*build_claude_command'"
+    run bash -c "sed -n '/# Build the Codex CLI command/,/# Execute Codex CLI/p' '$script' | grep -c 'CODEX_OUTPUT_FORMAT.*json.*build_codex_command'"
 
     # Should find 0 matches (the gate has been removed)
     [[ "$output" == "0" ]]
