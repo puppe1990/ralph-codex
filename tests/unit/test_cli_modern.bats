@@ -155,33 +155,33 @@ teardown() {
 # CONFIGURATION VARIABLE TESTS
 # =============================================================================
 
-@test "CLAUDE_OUTPUT_FORMAT defaults to json" {
+@test "CODEX_OUTPUT_FORMAT defaults to json" {
     # Verify by checking the default in ralph_loop.sh via grep
-    # The default is set via ${CLAUDE_OUTPUT_FORMAT:-json} pattern
-    run grep 'CLAUDE_OUTPUT_FORMAT=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    # The default is set via CODEX_OUTPUT_FORMAT with legacy fallback
+    run grep 'CODEX_OUTPUT_FORMAT=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *"json"* ]]
 }
 
-@test "CLAUDE_ALLOWED_TOOLS has sensible defaults" {
+@test "CODEX_ALLOWED_TOOLS has sensible defaults" {
     # Verify by checking the default in ralph_loop.sh via grep
-    run grep 'CLAUDE_ALLOWED_TOOLS=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'CODEX_ALLOWED_TOOLS=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     # Should include Write, Bash, Read at minimum
     [[ "$output" == *"Write"* ]]
     [[ "$output" == *"Read"* ]]
 }
 
-@test "CLAUDE_ALLOWED_TOOLS default includes Edit tool (issue #136)" {
+@test "CODEX_ALLOWED_TOOLS default includes Edit tool (issue #136)" {
     # Verify the default includes Edit for file editing
-    run grep 'CLAUDE_ALLOWED_TOOLS=.*:-' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'CODEX_ALLOWED_TOOLS=.*:-' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     # The default should include Edit
     [[ "$output" == *"Edit"* ]]
 }
 
-@test "CLAUDE_ALLOWED_TOOLS default includes test execution tools (issue #136)" {
+@test "CODEX_ALLOWED_TOOLS default includes test execution tools (issue #136)" {
     # Verify the default includes test execution capabilities
-    run grep 'CLAUDE_ALLOWED_TOOLS=.*:-' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'CODEX_ALLOWED_TOOLS=.*:-' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     # Should include Bash(npm *) for npm test
     [[ "$output" == *'Bash(npm *)'* ]]
@@ -189,9 +189,9 @@ teardown() {
     [[ "$output" == *'Bash(pytest)'* ]]
 }
 
-@test "CLAUDE_USE_CONTINUE defaults to true" {
+@test "CODEX_USE_CONTINUE defaults to true" {
     # Verify by checking the default in ralph_loop.sh via grep
-    run grep 'CLAUDE_USE_CONTINUE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep 'CODEX_USE_CONTINUE=' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
     [[ "$output" == *"true"* ]]
 }
 
@@ -703,7 +703,7 @@ EOF
 
     # Should check _env_* variables (not saved_* which would always have values)
     [[ "$output" == *'_env_MAX_CALLS_PER_HOUR'* ]]
-    [[ "$output" == *'_env_CLAUDE_TIMEOUT_MINUTES'* ]]
+    [[ "$output" == *'_env_CODEX_TIMEOUT_MINUTES'* ]]
 }
 
 # =============================================================================

@@ -68,12 +68,11 @@ PROJECT_TYPE="generic"
 
 # Loop settings
 MAX_CALLS_PER_HOUR=100
-CLAUDE_TIMEOUT_MINUTES=15
-CLAUDE_OUTPUT_FORMAT="json"
+CODEX_TIMEOUT_MINUTES=15
+CODEX_OUTPUT_FORMAT="json"
 
-# Tool permissions
-# Comma-separated list of allowed tools
-ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
+# Deprecated compatibility option (no-op in Codex mode)
+CODEX_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
 
 # Session management
 SESSION_CONTINUITY=true

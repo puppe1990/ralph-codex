@@ -4,12 +4,17 @@
 # Version: 0.12.0 - Codex CLI migration
 set -e
 
+# Source timeout utilities (portable timeout across Linux/macOS)
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+source "$SCRIPT_DIR/lib/timeout_utils.sh"
+
 # Configuration
-CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-codex}"
+CODEX_CODE_CMD="${CODEX_CODE_CMD:-${CLAUDE_CODE_CMD:-codex}}"
 
 # Codex CLI configuration
-CLAUDE_OUTPUT_FORMAT="jsonl"
-CLAUDE_MIN_VERSION="${CLAUDE_MIN_VERSION:-0.80.0}"  # Minimum recommended Codex CLI version
+CODEX_OUTPUT_FORMAT="jsonl"
+CODEX_MIN_VERSION="${CODEX_MIN_VERSION:-${CLAUDE_MIN_VERSION:-0.80.0}}"  # Minimum recommended Codex CLI version
+CODEX_IMPORT_TIMEOUT_MINUTES="${CODEX_IMPORT_TIMEOUT_MINUTES:-20}"
 
 # Temporary file names
 CONVERSION_OUTPUT_FILE=".ralph_conversion_output.json"
@@ -184,24 +189,24 @@ parse_conversion_response() {
     return 0
 }
 
-# check_claude_version - Verify Codex CLI version meets minimum requirements
+# check_codex_version - Verify Codex CLI version meets minimum requirements
 #
-# Checks if the installed Codex CLI version is at or above CLAUDE_MIN_VERSION.
+# Checks if the installed Codex CLI version is at or above CODEX_MIN_VERSION.
 # Uses numeric semantic version comparison (major.minor.patch).
 #
 # Parameters:
-#   None (uses global CLAUDE_CODE_CMD and CLAUDE_MIN_VERSION)
+#   None (uses global CODEX_CODE_CMD and CODEX_MIN_VERSION)
 #
 # Returns:
-#   0 if version is >= CLAUDE_MIN_VERSION
-#   1 if version cannot be determined or is below CLAUDE_MIN_VERSION
+#   0 if version is >= CODEX_MIN_VERSION
+#   1 if version cannot be determined or is below CODEX_MIN_VERSION
 #
 # Side Effects:
 #   Logs warning via log() if version check fails
 #
-check_claude_version() {
+check_codex_version() {
     local version
-    version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    version=$($CODEX_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
     if [[ -z "$version" ]]; then
         log "WARN" "Could not determine Codex CLI version"
@@ -214,7 +219,7 @@ check_claude_version() {
     local min_major min_minor min_patch
 
     IFS='.' read -r ver_major ver_minor ver_patch <<< "$version"
-    IFS='.' read -r min_major min_minor min_patch <<< "$CLAUDE_MIN_VERSION"
+    IFS='.' read -r min_major min_minor min_patch <<< "$CODEX_MIN_VERSION"
 
     # Default empty components to 0 (handles versions like "2.1" without patch)
     ver_major=${ver_major:-0}
@@ -226,7 +231,7 @@ check_claude_version() {
 
     # Compare major version
     if [[ $ver_major -lt $min_major ]]; then
-        log "WARN" "Codex CLI version $version is below recommended $CLAUDE_MIN_VERSION"
+        log "WARN" "Codex CLI version $version is below recommended $CODEX_MIN_VERSION"
         return 1
     elif [[ $ver_major -gt $min_major ]]; then
         return 0
@@ -234,7 +239,7 @@ check_claude_version() {
 
     # Major equal, compare minor version
     if [[ $ver_minor -lt $min_minor ]]; then
-        log "WARN" "Codex CLI version $version is below recommended $CLAUDE_MIN_VERSION"
+        log "WARN" "Codex CLI version $version is below recommended $CODEX_MIN_VERSION"
         return 1
     elif [[ $ver_minor -gt $min_minor ]]; then
         return 0
@@ -242,11 +247,16 @@ check_claude_version() {
 
     # Minor equal, compare patch version
     if [[ $ver_patch -lt $min_patch ]]; then
-        log "WARN" "Codex CLI version $version is below recommended $CLAUDE_MIN_VERSION"
+        log "WARN" "Codex CLI version $version is below recommended $CODEX_MIN_VERSION"
         return 1
     fi
 
     return 0
+}
+
+# Backward-compatible alias for older scripts/tests.
+check_claude_version() {
+    check_codex_version "$@"
 }
 
 show_help() {
@@ -294,8 +304,13 @@ check_dependencies() {
         log "WARN" "jq not found. Install it (brew install jq | sudo apt-get install jq | choco install jq) for faster JSON parsing."
     fi
 
-    if ! command -v "$CLAUDE_CODE_CMD" &> /dev/null 2>&1; then
-        log "ERROR" "Codex CLI ($CLAUDE_CODE_CMD) not found. Install Codex CLI first."
+    if ! command -v "$CODEX_CODE_CMD" &> /dev/null 2>&1; then
+        log "ERROR" "Codex CLI ($CODEX_CODE_CMD) not found. Install Codex CLI first."
+        exit 1
+    fi
+
+    if ! has_timeout_command; then
+        log "ERROR" "$(get_timeout_status_message)"
         exit 1
     fi
 }
@@ -309,7 +324,7 @@ convert_prd() {
     log "INFO" "Converting PRD to Ralph format using Codex CLI..."
 
     # Check CLI version
-    if ! check_claude_version 2>/dev/null; then
+    if ! check_codex_version 2>/dev/null; then
         log "WARN" "Proceeding with potentially outdated Codex CLI version"
     else
         log "INFO" "Using Codex JSONL event output"
@@ -442,7 +457,8 @@ PROMPTEOF
     local stderr_file="${CONVERSION_OUTPUT_FILE}.err"
     local prompt_content
     prompt_content=$(cat "$CONVERSION_PROMPT_FILE")
-    if $CLAUDE_CODE_CMD exec --json "$prompt_content" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
+    local timeout_seconds=$((CODEX_IMPORT_TIMEOUT_MINUTES * 60))
+    if portable_timeout "${timeout_seconds}s" "$CODEX_CODE_CMD" exec --json "$prompt_content" > "$CONVERSION_OUTPUT_FILE" 2> "$stderr_file"; then
         cli_exit_code=0
     else
         cli_exit_code=$?
@@ -493,6 +509,9 @@ PROMPTEOF
 
     # Check CLI exit code
     if [[ $cli_exit_code -ne 0 ]]; then
+        if [[ $cli_exit_code -eq 124 ]]; then
+            log "ERROR" "PRD conversion timed out after ${CODEX_IMPORT_TIMEOUT_MINUTES} minutes"
+        fi
         log "ERROR" "PRD conversion failed (exit code: $cli_exit_code)"
         rm -f "$CONVERSION_PROMPT_FILE" "$CONVERSION_OUTPUT_FILE" "$stderr_file"
         exit 1

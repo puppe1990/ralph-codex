@@ -24,19 +24,18 @@ PROJECT_TYPE="${PROJECT_TYPE:-unknown}"
 MAX_CALLS_PER_HOUR=100
 
 # Timeout for each Codex CLI invocation (in minutes)
-CLAUDE_TIMEOUT_MINUTES=15
+CODEX_TIMEOUT_MINUTES=15
 
-# Output format: json (structured) or text (legacy)
-CLAUDE_OUTPUT_FORMAT="json"
+# Deprecated compatibility option (no-op in Codex mode)
+CODEX_OUTPUT_FORMAT="json"
 
 # =============================================================================
 # TOOL PERMISSIONS
 # =============================================================================
 
-# Comma-separated list of allowed tools for Codex CLI
-# Common tools: Write, Read, Edit, Grep, Glob
-# Bash patterns: Bash(git *), Bash(npm *), Bash(pytest)
-ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
+# Deprecated compatibility option (no-op in Codex mode)
+# Kept for backward compatibility with older .ralphrc files.
+CODEX_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
 
 # =============================================================================
 # SESSION MANAGEMENT
@@ -87,7 +86,7 @@ CB_AUTO_RESET=false
 # =============================================================================
 
 # Minimum Codex CLI version required
-CLAUDE_MIN_VERSION="2.0.76"
+CODEX_MIN_VERSION="0.80.0"
 
 # Enable verbose logging
 RALPH_VERBOSE=false

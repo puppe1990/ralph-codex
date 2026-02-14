@@ -26,7 +26,7 @@ DOCS_DIR="$RALPH_DIR/docs/generated"
 STATUS_FILE="$RALPH_DIR/status.json"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
 LOCK_DIR="$RALPH_DIR/.lock"
-CLAUDE_CODE_CMD="${CLAUDE_CODE_CMD:-codex}"
+CODEX_CODE_CMD="${CODEX_CODE_CMD:-${CLAUDE_CODE_CMD:-codex}}"
 SLEEP_DURATION=3600     # 1 hour in seconds
 LIVE_OUTPUT=false       # Show Codex CLI output in real-time (streaming)
 LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
@@ -37,11 +37,12 @@ USE_TMUX=false
 # Save environment variable state BEFORE setting defaults
 # These are used by load_ralphrc() to determine which values came from environment
 _env_MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-}"
-_env_CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-}"
-_env_CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-}"
-_env_CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-}"
-_env_CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-}"
-_env_CLAUDE_SESSION_EXPIRY_HOURS="${CLAUDE_SESSION_EXPIRY_HOURS:-}"
+_env_CODEX_TIMEOUT_MINUTES="${CODEX_TIMEOUT_MINUTES:-${CLAUDE_TIMEOUT_MINUTES:-}}"
+_env_CODEX_OUTPUT_FORMAT="${CODEX_OUTPUT_FORMAT:-${CLAUDE_OUTPUT_FORMAT:-}}"
+_env_CODEX_ALLOWED_TOOLS="${CODEX_ALLOWED_TOOLS:-${CLAUDE_ALLOWED_TOOLS:-}}"
+_env_CODEX_USE_CONTINUE="${CODEX_USE_CONTINUE:-${CLAUDE_USE_CONTINUE:-}}"
+_env_CODEX_SESSION_EXPIRY_HOURS="${CODEX_SESSION_EXPIRY_HOURS:-${CLAUDE_SESSION_EXPIRY_HOURS:-}}"
+_env_CODEX_MIN_VERSION="${CODEX_MIN_VERSION:-${CLAUDE_MIN_VERSION:-}}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
@@ -49,14 +50,14 @@ _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
 # Now set defaults (only if not already set by environment)
 MAX_CALLS_PER_HOUR="${MAX_CALLS_PER_HOUR:-100}"
 VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-false}"
-CLAUDE_TIMEOUT_MINUTES="${CLAUDE_TIMEOUT_MINUTES:-15}"
+CODEX_TIMEOUT_MINUTES="${CODEX_TIMEOUT_MINUTES:-${CLAUDE_TIMEOUT_MINUTES:-15}}"
 
 # Modern Codex CLI configuration (Phase 1.1)
-CLAUDE_OUTPUT_FORMAT="${CLAUDE_OUTPUT_FORMAT:-json}"
-CLAUDE_ALLOWED_TOOLS="${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)}"
-CLAUDE_USE_CONTINUE="${CLAUDE_USE_CONTINUE:-true}"
-CLAUDE_SESSION_FILE="$RALPH_DIR/.claude_session_id" # Session ID persistence file
-CLAUDE_MIN_VERSION="${CLAUDE_MIN_VERSION:-0.80.0}"  # Minimum recommended Codex CLI version
+CODEX_OUTPUT_FORMAT="${CODEX_OUTPUT_FORMAT:-${CLAUDE_OUTPUT_FORMAT:-json}}"
+CODEX_ALLOWED_TOOLS="${CODEX_ALLOWED_TOOLS:-${CLAUDE_ALLOWED_TOOLS:-Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)}}"
+CODEX_USE_CONTINUE="${CODEX_USE_CONTINUE:-${CLAUDE_USE_CONTINUE:-true}}"
+CODEX_SESSION_FILE="${CODEX_SESSION_FILE:-${CLAUDE_SESSION_FILE:-$RALPH_DIR/.codex_session_id}}" # Session ID persistence file
+CODEX_MIN_VERSION="${CODEX_MIN_VERSION:-${CLAUDE_MIN_VERSION:-0.80.0}}"  # Minimum recommended Codex CLI version
 
 # Session management configuration (Phase 1.2)
 # Note: SESSION_EXPIRATION_SECONDS is defined in lib/response_analyzer.sh (86400 = 24 hours)
@@ -64,7 +65,17 @@ RALPH_SESSION_FILE="$RALPH_DIR/.ralph_session"              # Ralph-specific ses
 RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"  # Session transition history
 # Session expiration: 24 hours default balances project continuity with fresh context
 # Too short = frequent context loss; Too long = stale context causes unpredictable behavior
-CLAUDE_SESSION_EXPIRY_HOURS=${CLAUDE_SESSION_EXPIRY_HOURS:-24}
+CODEX_SESSION_EXPIRY_HOURS=${CODEX_SESSION_EXPIRY_HOURS:-${CLAUDE_SESSION_EXPIRY_HOURS:-24}}
+
+# Legacy variable aliases (backward compatibility)
+CLAUDE_CODE_CMD="$CODEX_CODE_CMD"
+CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
+CLAUDE_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
+CLAUDE_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
+CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
+CLAUDE_SESSION_FILE="$CODEX_SESSION_FILE"
+CLAUDE_MIN_VERSION="$CODEX_MIN_VERSION"
+CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
 
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
@@ -106,11 +117,11 @@ RALPHRC_LOADED=false
 #
 # Configuration values that can be overridden:
 #   - MAX_CALLS_PER_HOUR
-#   - CLAUDE_TIMEOUT_MINUTES
-#   - CLAUDE_OUTPUT_FORMAT
-#   - ALLOWED_TOOLS (mapped to CLAUDE_ALLOWED_TOOLS)
-#   - SESSION_CONTINUITY (mapped to CLAUDE_USE_CONTINUE)
-#   - SESSION_EXPIRY_HOURS (mapped to CLAUDE_SESSION_EXPIRY_HOURS)
+#   - CODEX_TIMEOUT_MINUTES (legacy: CLAUDE_TIMEOUT_MINUTES)
+#   - CODEX_OUTPUT_FORMAT (legacy: CLAUDE_OUTPUT_FORMAT)
+#   - CODEX_ALLOWED_TOOLS / ALLOWED_TOOLS (deprecated no-op in Codex mode)
+#   - SESSION_CONTINUITY (mapped to CODEX_USE_CONTINUE)
+#   - SESSION_EXPIRY_HOURS (mapped to CODEX_SESSION_EXPIRY_HOURS)
 #   - CB_NO_PROGRESS_THRESHOLD
 #   - CB_SAME_ERROR_THRESHOLD
 #   - CB_OUTPUT_DECLINE_THRESHOLD
@@ -126,14 +137,35 @@ load_ralphrc() {
     source "$RALPHRC_FILE"
 
     # Map .ralphrc variable names to internal names
+    if [[ -n "${CODEX_ALLOWED_TOOLS:-}" ]]; then
+        CODEX_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
+    fi
     if [[ -n "${ALLOWED_TOOLS:-}" ]]; then
-        CLAUDE_ALLOWED_TOOLS="$ALLOWED_TOOLS"
+        CODEX_ALLOWED_TOOLS="$ALLOWED_TOOLS"
     fi
     if [[ -n "${SESSION_CONTINUITY:-}" ]]; then
-        CLAUDE_USE_CONTINUE="$SESSION_CONTINUITY"
+        CODEX_USE_CONTINUE="$SESSION_CONTINUITY"
     fi
     if [[ -n "${SESSION_EXPIRY_HOURS:-}" ]]; then
-        CLAUDE_SESSION_EXPIRY_HOURS="$SESSION_EXPIRY_HOURS"
+        CODEX_SESSION_EXPIRY_HOURS="$SESSION_EXPIRY_HOURS"
+    fi
+    if [[ -n "${CODEX_TIMEOUT_MINUTES:-}" ]]; then
+        CODEX_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
+    fi
+    if [[ -n "${CLAUDE_TIMEOUT_MINUTES:-}" ]]; then
+        CODEX_TIMEOUT_MINUTES="$CLAUDE_TIMEOUT_MINUTES"
+    fi
+    if [[ -n "${CODEX_OUTPUT_FORMAT:-}" ]]; then
+        CODEX_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
+    fi
+    if [[ -n "${CLAUDE_OUTPUT_FORMAT:-}" ]]; then
+        CODEX_OUTPUT_FORMAT="$CLAUDE_OUTPUT_FORMAT"
+    fi
+    if [[ -n "${CODEX_MIN_VERSION:-}" ]]; then
+        CODEX_MIN_VERSION="$CODEX_MIN_VERSION"
+    fi
+    if [[ -n "${CLAUDE_MIN_VERSION:-}" ]]; then
+        CODEX_MIN_VERSION="$CLAUDE_MIN_VERSION"
     fi
     if [[ -n "${RALPH_VERBOSE:-}" ]]; then
         VERBOSE_PROGRESS="$RALPH_VERBOSE"
@@ -143,14 +175,25 @@ load_ralphrc() {
     # (not script defaults). The _env_* variables were captured BEFORE defaults were set.
     # If _env_* is non-empty, the user explicitly set it in their environment.
     [[ -n "$_env_MAX_CALLS_PER_HOUR" ]] && MAX_CALLS_PER_HOUR="$_env_MAX_CALLS_PER_HOUR"
-    [[ -n "$_env_CLAUDE_TIMEOUT_MINUTES" ]] && CLAUDE_TIMEOUT_MINUTES="$_env_CLAUDE_TIMEOUT_MINUTES"
-    [[ -n "$_env_CLAUDE_OUTPUT_FORMAT" ]] && CLAUDE_OUTPUT_FORMAT="$_env_CLAUDE_OUTPUT_FORMAT"
-    [[ -n "$_env_CLAUDE_ALLOWED_TOOLS" ]] && CLAUDE_ALLOWED_TOOLS="$_env_CLAUDE_ALLOWED_TOOLS"
-    [[ -n "$_env_CLAUDE_USE_CONTINUE" ]] && CLAUDE_USE_CONTINUE="$_env_CLAUDE_USE_CONTINUE"
-    [[ -n "$_env_CLAUDE_SESSION_EXPIRY_HOURS" ]] && CLAUDE_SESSION_EXPIRY_HOURS="$_env_CLAUDE_SESSION_EXPIRY_HOURS"
+    [[ -n "$_env_CODEX_TIMEOUT_MINUTES" ]] && CODEX_TIMEOUT_MINUTES="$_env_CODEX_TIMEOUT_MINUTES"
+    [[ -n "$_env_CODEX_OUTPUT_FORMAT" ]] && CODEX_OUTPUT_FORMAT="$_env_CODEX_OUTPUT_FORMAT"
+    [[ -n "$_env_CODEX_ALLOWED_TOOLS" ]] && CODEX_ALLOWED_TOOLS="$_env_CODEX_ALLOWED_TOOLS"
+    [[ -n "$_env_CODEX_USE_CONTINUE" ]] && CODEX_USE_CONTINUE="$_env_CODEX_USE_CONTINUE"
+    [[ -n "$_env_CODEX_SESSION_EXPIRY_HOURS" ]] && CODEX_SESSION_EXPIRY_HOURS="$_env_CODEX_SESSION_EXPIRY_HOURS"
+    [[ -n "$_env_CODEX_MIN_VERSION" ]] && CODEX_MIN_VERSION="$_env_CODEX_MIN_VERSION"
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
+
+    # Keep legacy variable names synced for backward compatibility.
+    CLAUDE_CODE_CMD="$CODEX_CODE_CMD"
+    CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
+    CLAUDE_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
+    CLAUDE_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
+    CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
+    CLAUDE_SESSION_FILE="$CODEX_SESSION_FILE"
+    CLAUDE_MIN_VERSION="$CODEX_MIN_VERSION"
+    CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
 
     RALPHRC_LOADED=true
     return 0
@@ -487,7 +530,7 @@ should_exit_gracefully() {
 
     # 0. Permission denials (highest priority - Issue #101)
     # When Codex CLI is denied permission to run commands, halt immediately
-    # to allow user to update .ralphrc ALLOWED_TOOLS configuration
+    # to allow user to update Codex approval/sandbox configuration
     if [[ -f "$RESPONSE_ANALYSIS_FILE" ]]; then
         local has_permission_denials=$(jq -r '.analysis.has_permission_denials // false' "$RESPONSE_ANALYSIS_FILE" 2>/dev/null || echo "false")
         if [[ "$has_permission_denials" == "true" ]]; then
@@ -566,7 +609,7 @@ should_exit_gracefully() {
 # =============================================================================
 
 # Check Codex CLI version for compatibility with modern flags
-check_claude_version() {
+check_codex_version() {
     local version=$($CLAUDE_CODE_CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
     if [[ -z "$version" ]]; then
@@ -592,6 +635,11 @@ check_claude_version() {
 
     log_status "INFO" "Codex CLI version $version (>= $required) - modern features enabled"
     return 0
+}
+
+# Backward-compatible alias for older tests/scripts.
+check_claude_version() {
+    check_codex_version "$@"
 }
 
 # Validate allowed tools against whitelist
@@ -1594,7 +1642,8 @@ while [[ $# -gt 0 ]]; do
             ;;
         -t|--timeout)
             if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
-                CLAUDE_TIMEOUT_MINUTES="$2"
+                CODEX_TIMEOUT_MINUTES="$2"
+                CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
             else
                 echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
                 exit 1
@@ -1627,7 +1676,8 @@ while [[ $# -gt 0 ]]; do
             ;;
         --output-format)
             if [[ "$2" == "json" || "$2" == "text" ]]; then
-                CLAUDE_OUTPUT_FORMAT="$2"
+                CODEX_OUTPUT_FORMAT="$2"
+                CLAUDE_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
                 echo "WARN: --output-format is deprecated and has no effect in Codex mode." >&2
             else
                 echo "Error: --output-format must be 'json' or 'text'"
@@ -1639,12 +1689,14 @@ while [[ $# -gt 0 ]]; do
             if ! validate_allowed_tools "$2"; then
                 exit 1
             fi
-            CLAUDE_ALLOWED_TOOLS="$2"
+            CODEX_ALLOWED_TOOLS="$2"
+            CLAUDE_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
             echo "WARN: --allowed-tools is deprecated and has no effect in Codex mode." >&2
             shift 2
             ;;
         --no-continue)
-            CLAUDE_USE_CONTINUE=false
+            CODEX_USE_CONTINUE=false
+            CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
             shift
             ;;
         --session-expiry)
@@ -1652,7 +1704,8 @@ while [[ $# -gt 0 ]]; do
                 echo "Error: --session-expiry requires a positive integer (hours)"
                 exit 1
             fi
-            CLAUDE_SESSION_EXPIRY_HOURS="$2"
+            CODEX_SESSION_EXPIRY_HOURS="$2"
+            CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
             shift 2
             ;;
         --auto-reset-circuit)

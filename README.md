@@ -400,11 +400,11 @@ PROJECT_TYPE="typescript"
 
 # Loop settings
 MAX_CALLS_PER_HOUR=100
-CLAUDE_TIMEOUT_MINUTES=15
-CLAUDE_OUTPUT_FORMAT="json"
+CODEX_TIMEOUT_MINUTES=15
+CODEX_OUTPUT_FORMAT="json"  # Deprecated no-op in Codex mode
 
 # Tool permissions
-ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"
+CODEX_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"  # Deprecated no-op
 
 # Session management
 SESSION_CONTINUITY=true
