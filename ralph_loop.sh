@@ -46,7 +46,9 @@ CODEX_OUTPUT_SCHEMA_FILE="${CODEX_OUTPUT_SCHEMA_FILE:-$RALPH_DIR/output_schema.j
 # Runtime capability detection (populated by detect_codex_structured_output_capabilities)
 CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE=false
 CODEX_SUPPORTS_OUTPUT_SCHEMA=false
+CODEX_SUPPORTS_RESUME_LAST=false
 CODEX_LAST_MESSAGE_FILE=""
+CODEX_RESUME_STRATEGY="new"
 
 # Save environment variable state BEFORE setting defaults
 # These are used by load_ralphrc() to determine which values came from environment
@@ -769,6 +771,21 @@ detect_codex_structured_output_capabilities() {
     fi
 }
 
+# Detect support for native resume strategy (`codex exec resume --last`).
+detect_codex_resume_capabilities() {
+    CODEX_SUPPORTS_RESUME_LAST=false
+
+    local resume_help
+    resume_help=$("$CODEX_CODE_CMD" exec resume --help 2>/dev/null || true)
+    if echo "$resume_help" | grep -q -- "--last"; then
+        CODEX_SUPPORTS_RESUME_LAST=true
+    fi
+
+    if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "INFO" "Codex resume capability: resume--last=$CODEX_SUPPORTS_RESUME_LAST"
+    fi
+}
+
 # Validate allowed tools against whitelist
 # Returns 0 if valid, 1 if invalid with error message
 validate_allowed_tools() {
@@ -1244,9 +1261,11 @@ build_codex_command() {
     local prompt_file=$1
     local loop_context=$2
     local session_id=$3
+    local loop_count=${4:-1}
 
     # Reset global array
     CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec")
+    CODEX_RESUME_STRATEGY="new"
 
     # Check if prompt file exists
     if [[ ! -f "$prompt_file" ]]; then
@@ -1257,9 +1276,18 @@ build_codex_command() {
     # Codex only supports JSONL structured output for machine parsing
     CODEX_CMD_ARGS+=("--json")
 
-    # If session continuity is enabled and we have a thread id, switch to "exec resume"
-    if [[ "$CODEX_USE_CONTINUE" == "true" && -n "$session_id" ]]; then
-        CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "$session_id")
+    # Session continuity strategy:
+    # 1) Prefer explicit thread id from .ralph/.codex_session_id
+    # 2) Fallback to native "resume --last" when supported and past first loop
+    # 3) Fallback to fresh "exec"
+    if [[ "$CODEX_USE_CONTINUE" == "true" ]]; then
+        if [[ -n "$session_id" ]]; then
+            CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "$session_id")
+            CODEX_RESUME_STRATEGY="session_id"
+        elif [[ "$CODEX_SUPPORTS_RESUME_LAST" == "true" && "$loop_count" -gt 1 ]]; then
+            CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "--last")
+            CODEX_RESUME_STRATEGY="last"
+        fi
     fi
     append_codex_runtime_flags
     append_codex_structured_output_flags
@@ -1334,9 +1362,12 @@ execute_codex_code() {
         LIVE_OUTPUT=false
     fi
 
-    if ! build_codex_command "$PROMPT_FILE" "$loop_context" "$session_id"; then
+    if ! build_codex_command "$PROMPT_FILE" "$loop_context" "$session_id" "$loop_count"; then
         log_status "ERROR" "❌ Failed to build Codex CLI command"
         return 1
+    fi
+    if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "INFO" "Resume strategy: $CODEX_RESUME_STRATEGY"
     fi
 
     # Execute Codex CLI
@@ -1575,6 +1606,7 @@ main() {
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
     check_codex_version || true
     detect_codex_structured_output_capabilities
+    detect_codex_resume_capabilities
 
     # Check if project uses old flat structure and needs migration
     if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then

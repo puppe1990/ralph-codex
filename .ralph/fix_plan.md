@@ -7,7 +7,7 @@
 - [x] Add regression tests proving structured output path works and fallback path still works.
 
 ## Medium Priority
-- [ ] Introduce native resume mode strategy using `codex resume --last` where applicable; keep compatibility fallback to session-file flow.
+- [x] Introduce native resume mode strategy using `codex resume --last` where applicable; keep compatibility fallback to session-file flow.
 - [ ] Refactor and remove no-op/self-assignment code in `ralph_loop.sh` argument parsing and compatibility sync.
 - [ ] Add docs section in `README.md` with recommended Codex security profiles (`read-only`, `workspace-write`, `danger-full-access`) and approval policy examples.
 

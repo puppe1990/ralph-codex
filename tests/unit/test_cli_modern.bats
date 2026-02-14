@@ -474,6 +474,15 @@ EOF
     [[ "$output" -ge "1" ]]
 }
 
+@test "detect_codex_resume_capabilities checks support for --last" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/detect_codex_resume_capabilities()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *"exec resume --help"* ]]
+    [[ "$output" == *"--last"* ]]
+}
+
 @test "build_codex_command calls append_codex_structured_output_flags" {
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
@@ -506,6 +515,18 @@ EOF
     [[ "$output" == *'echo "$last_message_file"'* ]]
     [[ "$output" == *'echo "$jsonl_file"'* ]]
     [[ "$output" == *'echo "$output_file"'* ]]
+}
+
+@test "build_codex_command uses native resume strategy order" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/build_codex_command()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'if [[ -n "$session_id" ]]'* ]]
+    [[ "$output" == *'CODEX_RESUME_STRATEGY="session_id"'* ]]
+    [[ "$output" == *'CODEX_SUPPORTS_RESUME_LAST'* ]]
+    [[ "$output" == *'--last'* ]]
+    [[ "$output" == *'CODEX_RESUME_STRATEGY="last"'* ]]
 }
 
 # =============================================================================

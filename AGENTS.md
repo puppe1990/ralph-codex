@@ -51,7 +51,7 @@ Compatibility no-op keys (kept only for older configs):
 
 - Codex execution is JSON events (`--json`) and later normalized for analyzers.
 - When supported by local Codex CLI, Ralph writes final model output via `--output-last-message` and uses it as preferred completion-analysis input (with JSONL fallback).
-- Session continuity uses `.ralph/.codex_session_id`.
+- Session continuity prefers `.ralph/.codex_session_id` and falls back to native `exec resume --last` when available.
 - Circuit breaker opens on stagnation/repeated errors/permission-denial patterns.
 - Permission failures should guide users to sandbox/approval configuration first.
 
