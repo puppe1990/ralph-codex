@@ -24,6 +24,37 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Guard deprecated docs references
+      run: |
+        set -euo pipefail
+
+        echo "Checking active docs/workflows for deprecated CLAUDE.md references..."
+
+        ACTIVE_DOCS=(
+          "README.md"
+          "CONTRIBUTING.md"
+          "TESTING.md"
+          "AGENTS.md"
+          "docs/user-guide"
+        )
+
+        if grep -R -n --include="*.md" "CLAUDE\.md" "${ACTIVE_DOCS[@]}"; then
+          echo "::error::Found deprecated CLAUDE.md reference in active documentation. Use AGENTS.md."
+          exit 1
+        fi
+
+        REVIEW_WORKFLOWS=(
+          ".github/workflows/opencode-review.yml"
+          ".github/workflows/claude-code-review.yml"
+        )
+
+        if grep -n "CLAUDE\.md" "${REVIEW_WORKFLOWS[@]}"; then
+          echo "::error::Found deprecated CLAUDE.md reference in active docs/workflows. Use AGENTS.md."
+          exit 1
+        fi
+
+        echo "No deprecated CLAUDE.md references found in active docs/workflows."
+
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:

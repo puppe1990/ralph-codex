@@ -111,7 +111,7 @@ jobs:
             - Be aware of prior reviews and that new file information may reflect
               changes because of previous reviews.
 
-            Use the repository's CLAUDE.md for guidance on style and conventions.
+            Use the repository's AGENTS.md for guidance on style and conventions.
             Be constructive and helpful in your feedback.
 
             IMPORTANT: Post exactly ONE comment using `gh pr comment`, then STOP.

@@ -67,7 +67,7 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 
 **v0.11.2 - Setup Permissions Fix**
 - Fixed issue #136: `ralph-setup` now creates `.ralphrc` with consistent tool permissions
-- Updated default `ALLOWED_TOOLS` to include `Edit`, `Bash(npm *)`, and `Bash(pytest)`
+- Updated compatibility `CODEX_ALLOWED_TOOLS` default to include `Edit`, `Bash(npm *)`, and `Bash(pytest)` (deprecated no-op in Codex mode)
 - Both `ralph-setup` and `ralph-enable` now create identical `.ralphrc` configurations
 - Monitor now forwards all CLI parameters to inner ralph loop (#126)
 - Added 16 new tests for permissions and parameter forwarding

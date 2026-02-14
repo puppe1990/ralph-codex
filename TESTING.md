@@ -329,7 +329,8 @@ teardown() {
 }
 
 @test "function uses Codex CLI successfully" {
-    # Configure successful mock response
+    # Configure successful mock response.
+    # Note: test helper vars keep legacy MOCK_CLAUDE_* names for compatibility.
     export MOCK_CLAUDE_SUCCESS=true
     export MOCK_CLAUDE_OUTPUT="Task completed"
 
@@ -451,7 +452,7 @@ Located at `tests/helpers/mocks.bash`, provides mock implementations:
 
 ```bash
 # Codex CLI mock
-mock_claude_code()     # Configurable via MOCK_CLAUDE_* vars
+mock_claude_code()     # Legacy function name; mocks Codex CLI behavior
   MOCK_CLAUDE_SUCCESS=true|false
   MOCK_CLAUDE_OUTPUT="response text"
   MOCK_CLAUDE_EXIT_CODE=0
