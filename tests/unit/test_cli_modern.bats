@@ -195,6 +195,26 @@ teardown() {
     [[ "$output" == *"true"* ]]
 }
 
+@test "sync_legacy_aliases function exists and maps CLAUDE compatibility vars" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/sync_legacy_aliases()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"'* ]]
+    [[ "$output" == *'CLAUDE_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"'* ]]
+    [[ "$output" == *'CLAUDE_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"'* ]]
+    [[ "$output" == *'CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"'* ]]
+}
+
+@test "CLI parser syncs compatibility aliases once after argument parsing" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run rg -n "Ensure compatibility aliases reflect latest CLI parsing results|sync_legacy_aliases" "$script"
+    assert_success
+    [[ "$output" == *"Ensure compatibility aliases reflect latest CLI parsing results"* ]]
+    [[ "$output" == *"sync_legacy_aliases"* ]]
+}
+
 # =============================================================================
 # CLI FLAG PARSING TESTS
 # =============================================================================

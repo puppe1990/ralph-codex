@@ -92,15 +92,20 @@ RALPH_SESSION_HISTORY_FILE="$RALPH_DIR/.ralph_session_history"  # Session transi
 # Too short = frequent context loss; Too long = stale context causes unpredictable behavior
 CODEX_SESSION_EXPIRY_HOURS=${CODEX_SESSION_EXPIRY_HOURS:-${CLAUDE_SESSION_EXPIRY_HOURS:-24}}
 
+# Keep legacy CLAUDE_* aliases in sync with canonical CODEX_* variables.
+sync_legacy_aliases() {
+    CLAUDE_CODE_CMD="$CODEX_CODE_CMD"
+    CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
+    CLAUDE_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
+    CLAUDE_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
+    CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
+    CLAUDE_SESSION_FILE="$CODEX_SESSION_FILE"
+    CLAUDE_MIN_VERSION="$CODEX_MIN_VERSION"
+    CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
+}
+
 # Legacy variable aliases (backward compatibility)
-CLAUDE_CODE_CMD="$CODEX_CODE_CMD"
-CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
-CLAUDE_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
-CLAUDE_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
-CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
-CLAUDE_SESSION_FILE="$CODEX_SESSION_FILE"
-CLAUDE_MIN_VERSION="$CODEX_MIN_VERSION"
-CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
+sync_legacy_aliases
 
 # Valid tool patterns for --allowed-tools validation
 # Tools can be exact matches or pattern matches with wildcards in parentheses
@@ -171,32 +176,29 @@ load_ralphrc() {
     source "$RALPHRC_FILE"
 
     # Map .ralphrc variable names to internal names
-    if [[ -n "${CODEX_ALLOWED_TOOLS:-}" ]]; then
-        CODEX_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
-    fi
     if [[ -n "${ALLOWED_TOOLS:-}" ]]; then
         CODEX_ALLOWED_TOOLS="$ALLOWED_TOOLS"
+    fi
+    if [[ -n "${CLAUDE_ALLOWED_TOOLS:-}" ]]; then
+        CODEX_ALLOWED_TOOLS="$CLAUDE_ALLOWED_TOOLS"
     fi
     if [[ -n "${SESSION_CONTINUITY:-}" ]]; then
         CODEX_USE_CONTINUE="$SESSION_CONTINUITY"
     fi
+    if [[ -n "${CLAUDE_USE_CONTINUE:-}" ]]; then
+        CODEX_USE_CONTINUE="$CLAUDE_USE_CONTINUE"
+    fi
     if [[ -n "${SESSION_EXPIRY_HOURS:-}" ]]; then
         CODEX_SESSION_EXPIRY_HOURS="$SESSION_EXPIRY_HOURS"
     fi
-    if [[ -n "${CODEX_TIMEOUT_MINUTES:-}" ]]; then
-        CODEX_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
+    if [[ -n "${CLAUDE_SESSION_EXPIRY_HOURS:-}" ]]; then
+        CODEX_SESSION_EXPIRY_HOURS="$CLAUDE_SESSION_EXPIRY_HOURS"
     fi
     if [[ -n "${CLAUDE_TIMEOUT_MINUTES:-}" ]]; then
         CODEX_TIMEOUT_MINUTES="$CLAUDE_TIMEOUT_MINUTES"
     fi
-    if [[ -n "${CODEX_OUTPUT_FORMAT:-}" ]]; then
-        CODEX_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
-    fi
     if [[ -n "${CLAUDE_OUTPUT_FORMAT:-}" ]]; then
         CODEX_OUTPUT_FORMAT="$CLAUDE_OUTPUT_FORMAT"
-    fi
-    if [[ -n "${CODEX_MIN_VERSION:-}" ]]; then
-        CODEX_MIN_VERSION="$CODEX_MIN_VERSION"
     fi
     if [[ -n "${CLAUDE_MIN_VERSION:-}" ]]; then
         CODEX_MIN_VERSION="$CLAUDE_MIN_VERSION"
@@ -204,35 +206,8 @@ load_ralphrc() {
     if [[ -n "${RALPH_VERBOSE:-}" ]]; then
         VERBOSE_PROGRESS="$RALPH_VERBOSE"
     fi
-    if [[ -n "${CODEX_SANDBOX_MODE:-}" ]]; then
-        CODEX_SANDBOX_MODE="$CODEX_SANDBOX_MODE"
-    fi
     if [[ -n "${SANDBOX_MODE:-}" ]]; then
         CODEX_SANDBOX_MODE="$SANDBOX_MODE"
-    fi
-    if [[ -n "${CODEX_PROFILE:-}" ]]; then
-        CODEX_PROFILE="$CODEX_PROFILE"
-    fi
-    if [[ -n "${CODEX_CWD:-}" ]]; then
-        CODEX_CWD="$CODEX_CWD"
-    fi
-    if [[ -n "${CODEX_ADD_DIRS:-}" ]]; then
-        CODEX_ADD_DIRS="$CODEX_ADD_DIRS"
-    fi
-    if [[ -n "${CODEX_SKIP_GIT_REPO_CHECK:-}" ]]; then
-        CODEX_SKIP_GIT_REPO_CHECK="$CODEX_SKIP_GIT_REPO_CHECK"
-    fi
-    if [[ -n "${CODEX_EPHEMERAL:-}" ]]; then
-        CODEX_EPHEMERAL="$CODEX_EPHEMERAL"
-    fi
-    if [[ -n "${CODEX_FULL_AUTO:-}" ]]; then
-        CODEX_FULL_AUTO="$CODEX_FULL_AUTO"
-    fi
-    if [[ -n "${CODEX_DANGEROUS_BYPASS:-}" ]]; then
-        CODEX_DANGEROUS_BYPASS="$CODEX_DANGEROUS_BYPASS"
-    fi
-    if [[ -n "${CODEX_OUTPUT_SCHEMA_FILE:-}" ]]; then
-        CODEX_OUTPUT_SCHEMA_FILE="$CODEX_OUTPUT_SCHEMA_FILE"
     fi
 
     # Restore ONLY values that were explicitly set via environment variables
@@ -259,14 +234,7 @@ load_ralphrc() {
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
 
     # Keep legacy variable names synced for backward compatibility.
-    CLAUDE_CODE_CMD="$CODEX_CODE_CMD"
-    CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
-    CLAUDE_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
-    CLAUDE_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
-    CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
-    CLAUDE_SESSION_FILE="$CODEX_SESSION_FILE"
-    CLAUDE_MIN_VERSION="$CODEX_MIN_VERSION"
-    CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
+    sync_legacy_aliases
 
     RALPHRC_LOADED=true
     return 0
@@ -1899,7 +1867,6 @@ while [[ $# -gt 0 ]]; do
         -t|--timeout)
             if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
                 CODEX_TIMEOUT_MINUTES="$2"
-                CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
             else
                 echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
                 exit 1
@@ -2001,7 +1968,6 @@ while [[ $# -gt 0 ]]; do
         --output-format)
             if [[ "$2" == "json" || "$2" == "text" ]]; then
                 CODEX_OUTPUT_FORMAT="$2"
-                CLAUDE_OUTPUT_FORMAT="$CODEX_OUTPUT_FORMAT"
                 echo "WARN: --output-format is deprecated and has no effect in Codex mode." >&2
             else
                 echo "Error: --output-format must be 'json' or 'text'"
@@ -2014,13 +1980,11 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CODEX_ALLOWED_TOOLS="$2"
-            CLAUDE_ALLOWED_TOOLS="$CODEX_ALLOWED_TOOLS"
             echo "WARN: --allowed-tools is deprecated and has no effect in Codex mode." >&2
             shift 2
             ;;
         --no-continue)
             CODEX_USE_CONTINUE=false
-            CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
             shift
             ;;
         --session-expiry)
@@ -2029,7 +1993,6 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CODEX_SESSION_EXPIRY_HOURS="$2"
-            CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
             shift 2
             ;;
         --auto-reset-circuit)
@@ -2043,6 +2006,9 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Ensure compatibility aliases reflect latest CLI parsing results.
+sync_legacy_aliases
 
 # Only execute when run directly, not when sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
