@@ -271,12 +271,12 @@ EOF
 # SESSION CONTINUITY IN CLAUDE CLI COMMAND
 # =============================================================================
 
-@test "--continue flag is added to Claude CLI command" {
-    # Check that --continue is used in build_claude_command
-    run grep -E '\-\-continue' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+@test "resume command is used for session continuity" {
+    # Check that codex exec resume is used when session continuity is enabled
+    run grep -E 'exec" "resume"' "${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     [[ $status -eq 0 ]]
-    [[ "$output" == *"--continue"* ]]
+    [[ "$output" == *"resume"* ]]
 }
 
 @test "CLAUDE_USE_CONTINUE configuration controls session continuity" {

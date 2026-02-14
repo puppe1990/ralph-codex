@@ -34,9 +34,11 @@ confirm() {
     local prompt=$1
     local default="${2:-n}"
     local response
+    local default_lc
+    default_lc=$(printf '%s' "$default" | tr '[:upper:]' '[:lower:]')
 
     local yn_hint="[y/N]"
-    if [[ "${default,,}" == "y" ]]; then
+    if [[ "$default_lc" == "y" ]]; then
         yn_hint="[Y/n]"
     fi
 
@@ -50,7 +52,7 @@ confirm() {
             response="$default"
         fi
 
-        case "${response,,}" in
+        case "$(printf '%s' "$response" | tr '[:upper:]' '[:lower:]')" in
             y|yes)
                 return 0
                 ;;
