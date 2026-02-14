@@ -40,6 +40,7 @@ Important keys:
 - `CODEX_USE_CONTINUE` (default: `true`)
 - `CODEX_SESSION_EXPIRY_HOURS` (default: `24`)
 - `CODEX_MIN_VERSION` (default: `0.80.0`)
+- `CODEX_OUTPUT_SCHEMA_FILE` (default: `.ralph/output_schema.json`, optional)
 
 Compatibility no-op keys (kept only for older configs):
 
@@ -49,6 +50,7 @@ Compatibility no-op keys (kept only for older configs):
 ## Runtime Expectations
 
 - Codex execution is JSON events (`--json`) and later normalized for analyzers.
+- When supported by local Codex CLI, Ralph writes final model output via `--output-last-message` and uses it as preferred completion-analysis input (with JSONL fallback).
 - Session continuity uses `.ralph/.codex_session_id`.
 - Circuit breaker opens on stagnation/repeated errors/permission-denial patterns.
 - Permission failures should guide users to sandbox/approval configuration first.

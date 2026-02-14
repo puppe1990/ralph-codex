@@ -41,6 +41,12 @@ CODEX_SKIP_GIT_REPO_CHECK="${CODEX_SKIP_GIT_REPO_CHECK:-false}"
 CODEX_EPHEMERAL="${CODEX_EPHEMERAL:-false}"
 CODEX_FULL_AUTO="${CODEX_FULL_AUTO:-false}"
 CODEX_DANGEROUS_BYPASS="${CODEX_DANGEROUS_BYPASS:-false}"
+CODEX_OUTPUT_SCHEMA_FILE="${CODEX_OUTPUT_SCHEMA_FILE:-$RALPH_DIR/output_schema.json}"
+
+# Runtime capability detection (populated by detect_codex_structured_output_capabilities)
+CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE=false
+CODEX_SUPPORTS_OUTPUT_SCHEMA=false
+CODEX_LAST_MESSAGE_FILE=""
 
 # Save environment variable state BEFORE setting defaults
 # These are used by load_ralphrc() to determine which values came from environment
@@ -59,6 +65,7 @@ _env_CODEX_SKIP_GIT_REPO_CHECK="${CODEX_SKIP_GIT_REPO_CHECK:-}"
 _env_CODEX_EPHEMERAL="${CODEX_EPHEMERAL:-}"
 _env_CODEX_FULL_AUTO="${CODEX_FULL_AUTO:-}"
 _env_CODEX_DANGEROUS_BYPASS="${CODEX_DANGEROUS_BYPASS:-}"
+_env_CODEX_OUTPUT_SCHEMA_FILE="${CODEX_OUTPUT_SCHEMA_FILE:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
@@ -146,6 +153,7 @@ RALPHRC_LOADED=false
 #   - CODEX_EPHEMERAL
 #   - CODEX_FULL_AUTO
 #   - CODEX_DANGEROUS_BYPASS
+#   - CODEX_OUTPUT_SCHEMA_FILE
 #   - CB_NO_PROGRESS_THRESHOLD
 #   - CB_SAME_ERROR_THRESHOLD
 #   - CB_OUTPUT_DECLINE_THRESHOLD
@@ -221,6 +229,9 @@ load_ralphrc() {
     if [[ -n "${CODEX_DANGEROUS_BYPASS:-}" ]]; then
         CODEX_DANGEROUS_BYPASS="$CODEX_DANGEROUS_BYPASS"
     fi
+    if [[ -n "${CODEX_OUTPUT_SCHEMA_FILE:-}" ]]; then
+        CODEX_OUTPUT_SCHEMA_FILE="$CODEX_OUTPUT_SCHEMA_FILE"
+    fi
 
     # Restore ONLY values that were explicitly set via environment variables
     # (not script defaults). The _env_* variables were captured BEFORE defaults were set.
@@ -240,6 +251,7 @@ load_ralphrc() {
     [[ -n "$_env_CODEX_EPHEMERAL" ]] && CODEX_EPHEMERAL="$_env_CODEX_EPHEMERAL"
     [[ -n "$_env_CODEX_FULL_AUTO" ]] && CODEX_FULL_AUTO="$_env_CODEX_FULL_AUTO"
     [[ -n "$_env_CODEX_DANGEROUS_BYPASS" ]] && CODEX_DANGEROUS_BYPASS="$_env_CODEX_DANGEROUS_BYPASS"
+    [[ -n "$_env_CODEX_OUTPUT_SCHEMA_FILE" ]] && CODEX_OUTPUT_SCHEMA_FILE="$_env_CODEX_OUTPUT_SCHEMA_FILE"
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
@@ -733,6 +745,30 @@ check_claude_version() {
     check_codex_version "$@"
 }
 
+# Detect support for structured exec output flags in local Codex CLI.
+detect_codex_structured_output_capabilities() {
+    CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE=false
+    CODEX_SUPPORTS_OUTPUT_SCHEMA=false
+
+    local help_output
+    help_output=$("$CODEX_CODE_CMD" exec --help 2>/dev/null || true)
+    if [[ -z "$help_output" ]]; then
+        log_status "WARN" "Could not inspect Codex exec --help; structured output flags disabled"
+        return 0
+    fi
+
+    if echo "$help_output" | grep -q -- "--output-last-message"; then
+        CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE=true
+    fi
+    if echo "$help_output" | grep -q -- "--output-schema"; then
+        CODEX_SUPPORTS_OUTPUT_SCHEMA=true
+    fi
+
+    if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "INFO" "Codex structured flags: output-last-message=$CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE output-schema=$CODEX_SUPPORTS_OUTPUT_SCHEMA"
+    fi
+}
+
 # Validate allowed tools against whitelist
 # Returns 0 if valid, 1 if invalid with error message
 validate_allowed_tools() {
@@ -1175,6 +1211,32 @@ append_codex_runtime_flags() {
     fi
 }
 
+# Append optional structured output flags when the installed Codex CLI supports them.
+append_codex_structured_output_flags() {
+    if [[ "$CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE" == "true" && -n "$CODEX_LAST_MESSAGE_FILE" ]]; then
+        CODEX_CMD_ARGS+=("--output-last-message" "$CODEX_LAST_MESSAGE_FILE")
+    fi
+
+    if [[ "$CODEX_SUPPORTS_OUTPUT_SCHEMA" == "true" && -n "$CODEX_OUTPUT_SCHEMA_FILE" && -f "$CODEX_OUTPUT_SCHEMA_FILE" ]]; then
+        CODEX_CMD_ARGS+=("--output-schema" "$CODEX_OUTPUT_SCHEMA_FILE")
+    fi
+}
+
+# Pick best analysis source by precedence: structured last message, JSONL events, fallback output log.
+select_analysis_input_file() {
+    local last_message_file=$1
+    local jsonl_file=$2
+    local output_file=$3
+
+    if [[ -f "$last_message_file" && -s "$last_message_file" ]]; then
+        echo "$last_message_file"
+    elif [[ -f "$jsonl_file" && -s "$jsonl_file" ]]; then
+        echo "$jsonl_file"
+    else
+        echo "$output_file"
+    fi
+}
+
 # Build Codex CLI command with modern flags using array (shell-injection safe)
 # Populates global CODEX_CMD_ARGS array for direct execution
 # Uses positional prompt argument for codex exec / codex exec resume
@@ -1200,6 +1262,7 @@ build_codex_command() {
         CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "$session_id")
     fi
     append_codex_runtime_flags
+    append_codex_structured_output_flags
 
     # Read prompt file content and append loop context inline
     local prompt_content
@@ -1229,6 +1292,7 @@ execute_codex_code() {
     local output_file="$LOG_DIR/codex_output_${timestamp}.log"
     local jsonl_file="$LOG_DIR/codex_events_${timestamp}.jsonl"
     local stderr_file="$LOG_DIR/codex_stderr_${timestamp}.log"
+    local last_message_file="$LOG_DIR/codex_last_message_${timestamp}.txt"
     local loop_count=$1
     local calls_made=$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")
     calls_made=$((calls_made + 1))
@@ -1259,6 +1323,9 @@ execute_codex_code() {
     if [[ "$CODEX_USE_CONTINUE" == "true" ]]; then
         session_id=$(init_codex_session)
     fi
+
+    # Make last message output file available while building the Codex command.
+    CODEX_LAST_MESSAGE_FILE="$last_message_file"
 
     # Codex is executed in JSONL mode and converted to message text post-run.
     # Live streaming mode from legacy stream-json is not supported in this path yet.
@@ -1369,10 +1436,8 @@ EOF
 
         # Analyze JSONL events directly when available to preserve structured signals.
         log_status "INFO" "🔍 Analyzing Codex response..."
-        local analysis_input_file="$output_file"
-        if [[ -f "$jsonl_file" && -s "$jsonl_file" ]]; then
-            analysis_input_file="$jsonl_file"
-        fi
+        local analysis_input_file
+        analysis_input_file=$(select_analysis_input_file "$last_message_file" "$jsonl_file" "$output_file")
         analyze_response "$analysis_input_file" "$loop_count"
         local analysis_exit_code=$?
 
@@ -1508,6 +1573,8 @@ main() {
     log_status "SUCCESS" "🚀 Ralph loop starting with Codex CLI"
     log_status "INFO" "Max calls per hour: $MAX_CALLS_PER_HOUR"
     log_status "INFO" "Logs: $LOG_DIR/ | Docs: $DOCS_DIR/ | Status: $STATUS_FILE"
+    check_codex_version || true
+    detect_codex_structured_output_capabilities
 
     # Check if project uses old flat structure and needs migration
     if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then

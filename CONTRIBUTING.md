@@ -387,6 +387,7 @@ teardown() {
 4. **Mock external dependencies** (Codex CLI, tmux, etc.)
 5. **Test edge cases** (empty files, invalid input, boundary values)
 6. **Add comments** for complex test scenarios
+7. **Preserve structured-output fallback behavior** (`output-last-message` -> JSONL -> text log)
 
 **Available Test Helpers:**
 

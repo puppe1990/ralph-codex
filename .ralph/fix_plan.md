@@ -3,8 +3,8 @@
 ## High Priority
 - [x] Add CLI passthrough/config support in `ralph_loop.sh` for Codex native controls: `--sandbox`, `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`, `--profile`, `--cd`, `--add-dir`, `--skip-git-repo-check`, `--ephemeral`.
 - [x] Add tests for new Codex native controls in `tests/unit/test_cli_parsing.bats` and `tests/unit/test_cli_modern.bats`.
-- [ ] Implement structured completion output path (prefer `--output-last-message` and optional `--output-schema`) and integrate with `lib/response_analyzer.sh`.
-- [ ] Add regression tests proving structured output path works and fallback path still works.
+- [x] Implement structured completion output path (prefer `--output-last-message` and optional `--output-schema`) and integrate with `lib/response_analyzer.sh`.
+- [x] Add regression tests proving structured output path works and fallback path still works.
 
 ## Medium Priority
 - [ ] Introduce native resume mode strategy using `codex resume --last` where applicable; keep compatibility fallback to session-file flow.

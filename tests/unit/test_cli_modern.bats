@@ -474,6 +474,40 @@ EOF
     [[ "$output" -ge "1" ]]
 }
 
+@test "build_codex_command calls append_codex_structured_output_flags" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/build_codex_command()/,/^}/p' '$script' | grep -c 'append_codex_structured_output_flags'"
+    assert_success
+    [[ "$output" -ge "1" ]]
+}
+
+@test "append_codex_structured_output_flags includes output-last-message support" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/append_codex_structured_output_flags()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *"--output-last-message"* ]]
+}
+
+@test "append_codex_structured_output_flags supports optional output-schema" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/append_codex_structured_output_flags()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *"--output-schema"* ]]
+}
+
+@test "analysis input selection prefers last message then jsonl then output log" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/select_analysis_input_file()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'echo "$last_message_file"'* ]]
+    [[ "$output" == *'echo "$jsonl_file"'* ]]
+    [[ "$output" == *'echo "$output_file"'* ]]
+}
+
 # =============================================================================
 # BUILD_CODEX_COMMAND TESTS (TDD)
 # Tests for the fix of --prompt-file -> -p flag

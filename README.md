@@ -409,6 +409,7 @@ CODEX_ALLOWED_TOOLS="Write,Read,Edit,Bash(git *),Bash(npm *),Bash(pytest)"  # De
 # Session management
 SESSION_CONTINUITY=true
 SESSION_EXPIRY_HOURS=24
+CODEX_OUTPUT_SCHEMA_FILE=".ralph/output_schema.json"  # Optional JSON Schema for final output
 
 # Circuit breaker thresholds
 CB_NO_PROGRESS_THRESHOLD=3
@@ -499,6 +500,18 @@ tail -f .ralph/live.log  # Watch in another terminal
 ```
 
 Ralph writes Codex JSONL progress to `.ralph/live.log` while each loop executes. The legacy `--live` flag is retained only for compatibility and is ignored in Codex mode.
+
+### Structured Completion Output
+
+When the installed Codex CLI supports it, Ralph enables:
+
+- `--output-last-message` to persist the final assistant message per loop
+- `--output-schema` if `CODEX_OUTPUT_SCHEMA_FILE` exists
+
+Analysis source precedence is:
+1. `codex_last_message_*.txt` (preferred)
+2. `codex_events_*.jsonl` (fallback)
+3. `codex_output_*.log` (final fallback)
 
 ### Session Continuity
 
