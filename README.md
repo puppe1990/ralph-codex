@@ -3,7 +3,7 @@
 [![CI](https://github.com/puppe1990/ralph-codex/actions/workflows/test.yml/badge.svg)](https://github.com/puppe1990/ralph-codex/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-0.11.4-blue)
-![Tests](https://img.shields.io/badge/tests-484%20passing-green)
+![Tests](https://img.shields.io/badge/tests-498%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/puppe1990/ralph-codex)](https://github.com/puppe1990/ralph-codex/issues)
 [![Mentioned in Awesome Codex CLI](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -18,7 +18,7 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 
 **Version**: v0.11.4 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 484 tests, 100% pass rate
+**Test Coverage**: 498 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -26,7 +26,7 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 - Rate limiting with hourly reset (100 calls/hour, configurable)
 - Circuit breaker with advanced error detection (prevents runaway loops)
 - Response analyzer with semantic understanding and two-stage error filtering
-- **JSON output format support with automatic fallback to text parsing**
+- **JSON/JSONL structured parsing with automatic fallback to text parsing**
 - **Session continuity with `--resume` flag for context preservation (no session hijacking)**
 - **Session expiration with configurable timeout (default: 24 hours)**
 - **Codex-native execution with JSONL events and `resume` thread continuity**
@@ -41,6 +41,11 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 - **Dedicated uninstall script for clean removal**
 
 ### Recent Improvements
+
+**Main Branch (post-v0.11.4)**
+- Added single-instance project lock to prevent concurrent loop state corruption
+- Switched analysis to Codex JSONL events as primary signal source
+- Marked `--live`, `--output-format`, and `--allowed-tools` as deprecated compatibility flags
 
 **v0.11.4 - Bug Fixes & Compatibility** (latest)
 - Fixed progress detection: Git commits within a loop now count as progress (#141)
@@ -618,7 +623,7 @@ If you want to run the test suite:
 # Install BATS testing framework
 npm install -g bats bats-support bats-assert
 
-# Run all tests (484 tests)
+# Run all tests (498 tests)
 npm test
 
 # Run specific test suites
@@ -644,8 +649,8 @@ bats tests/integration/test_installation.bats
 ```
 
 Current test status:
-- **484 tests** across 16 test files
-- **100% pass rate** (484/484 passing)
+- **498 tests** across 16 test files
+- **100% pass rate** (498/498 passing)
 - Comprehensive unit and integration tests
 - Specialized tests for JSON parsing, CLI flags, circuit breaker, EXIT_SIGNAL behavior, enable wizard, and installation workflows
 
@@ -725,9 +730,9 @@ tail -f .ralph/logs/ralph.log
 - **Session Expired** - Sessions expire after 24 hours by default; use `--reset-session` to start fresh
 - **timeout: command not found (macOS)** - Install GNU coreutils: `brew install coreutils`
 - **Permission Denied** - Ralph halts when Codex CLI is denied permission for commands:
-  1. Edit `.ralphrc` and update `ALLOWED_TOOLS` to include required tools
-  2. Common patterns: `Bash(npm *)`, `Bash(git *)`, `Bash(pytest)`
-  3. Run `ralph --reset-session` after updating `.ralphrc`
+  1. Review Codex sandbox/approval policy for your environment
+  2. Re-run with the proper policy (example: `approval_policy="on-request"`)
+  3. Run `ralph --reset-session` to clear stale state
   4. Restart with `ralph --monitor`
 
 ## Contributing
@@ -751,7 +756,7 @@ cd ralph-codex
 
 # Install dependencies and run tests
 npm install
-npm test  # All 484 tests must pass
+npm test  # All 498 tests must pass
 ```
 
 ### Priority Contribution Areas
@@ -796,7 +801,7 @@ ralph-migrate             # Migrate existing project to .ralph/ structure
 ralph [OPTIONS]
   -h, --help              Show help message
   -c, --calls NUM         Set max calls per hour (default: 100)
-  -p, --prompt FILE       Set prompt file (default: PROMPT.md)
+  -p, --prompt FILE       Set prompt file (default: .ralph/PROMPT.md)
   -s, --status            Show current status and exit
   -m, --monitor           Start with tmux session and live monitor
   -v, --verbose           Show detailed progress updates during execution
@@ -840,15 +845,16 @@ tmux attach -t <name>     # Reattach to detached session
 
 Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the complete roadmap.
 
-### Current Status: v0.11.4
+### Current Status: main branch
 
 **What's Delivered:**
 - Core loop functionality with intelligent exit detection
 - **Dual-condition exit gate** (completion indicators + EXIT_SIGNAL)
 - Rate limiting (100 calls/hour) and circuit breaker pattern
 - Response analyzer with semantic understanding
-- **484 comprehensive tests** (100% pass rate)
-- **Live streaming output mode** for real-time Codex CLI visibility
+- **498 comprehensive tests** (100% pass rate)
+- Codex JSONL event analysis with text fallback
+- Single-instance lock per project to prevent concurrent loop collisions
 - tmux integration and live monitoring
 - PRD import functionality with modern CLI JSON parsing
 - Installation system and project templates
