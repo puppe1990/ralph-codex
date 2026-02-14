@@ -33,6 +33,14 @@ LIVE_LOG_FILE="$RALPH_DIR/live.log"  # Fixed file for live output monitoring
 CALL_COUNT_FILE="$RALPH_DIR/.call_count"
 TIMESTAMP_FILE="$RALPH_DIR/.last_reset"
 USE_TMUX=false
+CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-}"
+CODEX_PROFILE="${CODEX_PROFILE:-}"
+CODEX_CWD="${CODEX_CWD:-}"
+CODEX_ADD_DIRS="${CODEX_ADD_DIRS:-}"  # Comma-separated list
+CODEX_SKIP_GIT_REPO_CHECK="${CODEX_SKIP_GIT_REPO_CHECK:-false}"
+CODEX_EPHEMERAL="${CODEX_EPHEMERAL:-false}"
+CODEX_FULL_AUTO="${CODEX_FULL_AUTO:-false}"
+CODEX_DANGEROUS_BYPASS="${CODEX_DANGEROUS_BYPASS:-false}"
 
 # Save environment variable state BEFORE setting defaults
 # These are used by load_ralphrc() to determine which values came from environment
@@ -43,6 +51,14 @@ _env_CODEX_ALLOWED_TOOLS="${CODEX_ALLOWED_TOOLS:-${CLAUDE_ALLOWED_TOOLS:-}}"
 _env_CODEX_USE_CONTINUE="${CODEX_USE_CONTINUE:-${CLAUDE_USE_CONTINUE:-}}"
 _env_CODEX_SESSION_EXPIRY_HOURS="${CODEX_SESSION_EXPIRY_HOURS:-${CLAUDE_SESSION_EXPIRY_HOURS:-}}"
 _env_CODEX_MIN_VERSION="${CODEX_MIN_VERSION:-${CLAUDE_MIN_VERSION:-}}"
+_env_CODEX_SANDBOX_MODE="${CODEX_SANDBOX_MODE:-}"
+_env_CODEX_PROFILE="${CODEX_PROFILE:-}"
+_env_CODEX_CWD="${CODEX_CWD:-}"
+_env_CODEX_ADD_DIRS="${CODEX_ADD_DIRS:-}"
+_env_CODEX_SKIP_GIT_REPO_CHECK="${CODEX_SKIP_GIT_REPO_CHECK:-}"
+_env_CODEX_EPHEMERAL="${CODEX_EPHEMERAL:-}"
+_env_CODEX_FULL_AUTO="${CODEX_FULL_AUTO:-}"
+_env_CODEX_DANGEROUS_BYPASS="${CODEX_DANGEROUS_BYPASS:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
@@ -122,6 +138,14 @@ RALPHRC_LOADED=false
 #   - CODEX_ALLOWED_TOOLS / ALLOWED_TOOLS (deprecated no-op in Codex mode)
 #   - SESSION_CONTINUITY (mapped to CODEX_USE_CONTINUE)
 #   - SESSION_EXPIRY_HOURS (mapped to CODEX_SESSION_EXPIRY_HOURS)
+#   - CODEX_SANDBOX_MODE / SANDBOX_MODE
+#   - CODEX_PROFILE
+#   - CODEX_CWD
+#   - CODEX_ADD_DIRS
+#   - CODEX_SKIP_GIT_REPO_CHECK
+#   - CODEX_EPHEMERAL
+#   - CODEX_FULL_AUTO
+#   - CODEX_DANGEROUS_BYPASS
 #   - CB_NO_PROGRESS_THRESHOLD
 #   - CB_SAME_ERROR_THRESHOLD
 #   - CB_OUTPUT_DECLINE_THRESHOLD
@@ -170,6 +194,33 @@ load_ralphrc() {
     if [[ -n "${RALPH_VERBOSE:-}" ]]; then
         VERBOSE_PROGRESS="$RALPH_VERBOSE"
     fi
+    if [[ -n "${CODEX_SANDBOX_MODE:-}" ]]; then
+        CODEX_SANDBOX_MODE="$CODEX_SANDBOX_MODE"
+    fi
+    if [[ -n "${SANDBOX_MODE:-}" ]]; then
+        CODEX_SANDBOX_MODE="$SANDBOX_MODE"
+    fi
+    if [[ -n "${CODEX_PROFILE:-}" ]]; then
+        CODEX_PROFILE="$CODEX_PROFILE"
+    fi
+    if [[ -n "${CODEX_CWD:-}" ]]; then
+        CODEX_CWD="$CODEX_CWD"
+    fi
+    if [[ -n "${CODEX_ADD_DIRS:-}" ]]; then
+        CODEX_ADD_DIRS="$CODEX_ADD_DIRS"
+    fi
+    if [[ -n "${CODEX_SKIP_GIT_REPO_CHECK:-}" ]]; then
+        CODEX_SKIP_GIT_REPO_CHECK="$CODEX_SKIP_GIT_REPO_CHECK"
+    fi
+    if [[ -n "${CODEX_EPHEMERAL:-}" ]]; then
+        CODEX_EPHEMERAL="$CODEX_EPHEMERAL"
+    fi
+    if [[ -n "${CODEX_FULL_AUTO:-}" ]]; then
+        CODEX_FULL_AUTO="$CODEX_FULL_AUTO"
+    fi
+    if [[ -n "${CODEX_DANGEROUS_BYPASS:-}" ]]; then
+        CODEX_DANGEROUS_BYPASS="$CODEX_DANGEROUS_BYPASS"
+    fi
 
     # Restore ONLY values that were explicitly set via environment variables
     # (not script defaults). The _env_* variables were captured BEFORE defaults were set.
@@ -181,6 +232,14 @@ load_ralphrc() {
     [[ -n "$_env_CODEX_USE_CONTINUE" ]] && CODEX_USE_CONTINUE="$_env_CODEX_USE_CONTINUE"
     [[ -n "$_env_CODEX_SESSION_EXPIRY_HOURS" ]] && CODEX_SESSION_EXPIRY_HOURS="$_env_CODEX_SESSION_EXPIRY_HOURS"
     [[ -n "$_env_CODEX_MIN_VERSION" ]] && CODEX_MIN_VERSION="$_env_CODEX_MIN_VERSION"
+    [[ -n "$_env_CODEX_SANDBOX_MODE" ]] && CODEX_SANDBOX_MODE="$_env_CODEX_SANDBOX_MODE"
+    [[ -n "$_env_CODEX_PROFILE" ]] && CODEX_PROFILE="$_env_CODEX_PROFILE"
+    [[ -n "$_env_CODEX_CWD" ]] && CODEX_CWD="$_env_CODEX_CWD"
+    [[ -n "$_env_CODEX_ADD_DIRS" ]] && CODEX_ADD_DIRS="$_env_CODEX_ADD_DIRS"
+    [[ -n "$_env_CODEX_SKIP_GIT_REPO_CHECK" ]] && CODEX_SKIP_GIT_REPO_CHECK="$_env_CODEX_SKIP_GIT_REPO_CHECK"
+    [[ -n "$_env_CODEX_EPHEMERAL" ]] && CODEX_EPHEMERAL="$_env_CODEX_EPHEMERAL"
+    [[ -n "$_env_CODEX_FULL_AUTO" ]] && CODEX_FULL_AUTO="$_env_CODEX_FULL_AUTO"
+    [[ -n "$_env_CODEX_DANGEROUS_BYPASS" ]] && CODEX_DANGEROUS_BYPASS="$_env_CODEX_DANGEROUS_BYPASS"
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
@@ -353,6 +412,38 @@ setup_tmux_session() {
     # Forward --auto-reset-circuit if enabled
     if [[ "$CB_AUTO_RESET" == "true" ]]; then
         ralph_cmd="$ralph_cmd --auto-reset-circuit"
+    fi
+    if [[ -n "$CODEX_SANDBOX_MODE" ]]; then
+        ralph_cmd="$ralph_cmd --sandbox $CODEX_SANDBOX_MODE"
+    fi
+    if [[ "$CODEX_FULL_AUTO" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --full-auto"
+    fi
+    if [[ "$CODEX_DANGEROUS_BYPASS" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --dangerously-bypass-approvals-and-sandbox"
+    fi
+    if [[ -n "$CODEX_PROFILE" ]]; then
+        ralph_cmd="$ralph_cmd --profile '$CODEX_PROFILE'"
+    fi
+    if [[ -n "$CODEX_CWD" ]]; then
+        ralph_cmd="$ralph_cmd --cd '$CODEX_CWD'"
+    fi
+    if [[ -n "$CODEX_ADD_DIRS" ]]; then
+        local IFS=','
+        read -ra add_dirs_tmux <<< "$CODEX_ADD_DIRS"
+        local add_dir_tmux
+        for add_dir_tmux in "${add_dirs_tmux[@]}"; do
+            add_dir_tmux=$(echo "$add_dir_tmux" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [[ -n "$add_dir_tmux" ]]; then
+                ralph_cmd="$ralph_cmd --add-dir '$add_dir_tmux'"
+            fi
+        done
+    fi
+    if [[ "$CODEX_SKIP_GIT_REPO_CHECK" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --skip-git-repo-check"
+    fi
+    if [[ "$CODEX_EPHEMERAL" == "true" ]]; then
+        ralph_cmd="$ralph_cmd --ephemeral"
     fi
 
     tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
@@ -1048,6 +1139,42 @@ update_session_last_used() {
 # Global array for Codex command arguments (avoids shell injection)
 declare -a CODEX_CMD_ARGS=()
 
+# Append optional Codex runtime controls to CODEX_CMD_ARGS.
+append_codex_runtime_flags() {
+    if [[ -n "$CODEX_SANDBOX_MODE" ]]; then
+        CODEX_CMD_ARGS+=("--sandbox" "$CODEX_SANDBOX_MODE")
+    fi
+    if [[ "$CODEX_FULL_AUTO" == "true" ]]; then
+        CODEX_CMD_ARGS+=("--full-auto")
+    fi
+    if [[ "$CODEX_DANGEROUS_BYPASS" == "true" ]]; then
+        CODEX_CMD_ARGS+=("--dangerously-bypass-approvals-and-sandbox")
+    fi
+    if [[ -n "$CODEX_PROFILE" ]]; then
+        CODEX_CMD_ARGS+=("--profile" "$CODEX_PROFILE")
+    fi
+    if [[ -n "$CODEX_CWD" ]]; then
+        CODEX_CMD_ARGS+=("--cd" "$CODEX_CWD")
+    fi
+    if [[ -n "$CODEX_ADD_DIRS" ]]; then
+        local IFS=','
+        read -ra add_dirs <<< "$CODEX_ADD_DIRS"
+        local add_dir
+        for add_dir in "${add_dirs[@]}"; do
+            add_dir=$(echo "$add_dir" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [[ -n "$add_dir" ]]; then
+                CODEX_CMD_ARGS+=("--add-dir" "$add_dir")
+            fi
+        done
+    fi
+    if [[ "$CODEX_SKIP_GIT_REPO_CHECK" == "true" ]]; then
+        CODEX_CMD_ARGS+=("--skip-git-repo-check")
+    fi
+    if [[ "$CODEX_EPHEMERAL" == "true" ]]; then
+        CODEX_CMD_ARGS+=("--ephemeral")
+    fi
+}
+
 # Build Codex CLI command with modern flags using array (shell-injection safe)
 # Populates global CODEX_CMD_ARGS array for direct execution
 # Uses positional prompt argument for codex exec / codex exec resume
@@ -1072,6 +1199,7 @@ build_codex_command() {
     if [[ "$CODEX_USE_CONTINUE" == "true" && -n "$session_id" ]]; then
         CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "$session_id")
     fi
+    append_codex_runtime_flags
 
     # Read prompt file content and append loop context inline
     local prompt_content
@@ -1582,6 +1710,15 @@ Options:
     -v, --verbose           Show detailed progress updates during execution
     -l, --live              Deprecated compatibility flag (ignored; Codex runs in JSONL mode)
     -t, --timeout MIN       Set Codex execution timeout in minutes (default: $CODEX_TIMEOUT_MINUTES)
+    --sandbox MODE          Set Codex sandbox mode: read-only|workspace-write|danger-full-access
+    --full-auto             Convenience mode: on-request approvals + workspace-write sandbox
+    --dangerously-bypass-approvals-and-sandbox
+                            Disable approvals and sandbox (dangerous)
+    --profile NAME          Use Codex profile from ~/.codex/config.toml
+    --cd DIR                Set Codex working directory root
+    --add-dir DIR           Add extra writable directory (repeatable)
+    --skip-git-repo-check   Allow running Codex outside git repositories
+    --ephemeral             Run Codex without persisting session files
     --reset-circuit         Reset circuit breaker to CLOSED state
     --circuit-status        Show circuit breaker status and exit
     --auto-reset-circuit    Auto-reset circuit breaker on startup (bypasses cooldown)
@@ -1614,6 +1751,8 @@ Examples:
     $0 --live --verbose      # Verbose mode + deprecated live flag
     $0 --monitor --timeout 30   # 30-minute timeout for complex tasks
     $0 --verbose --timeout 5    # 5-minute timeout with detailed progress
+    $0 --sandbox workspace-write --full-auto
+    $0 --profile ci --ephemeral --skip-git-repo-check
     $0 --output-format text  # Deprecated compatibility flag (ignored)
     $0 --no-continue            # Disable session continuity
     $0 --session-expiry 48      # 48-hour session expiration
@@ -1661,12 +1800,80 @@ while [[ $# -gt 0 ]]; do
         -t|--timeout)
             if [[ "$2" =~ ^[1-9][0-9]*$ ]] && [[ "$2" -le 120 ]]; then
                 CODEX_TIMEOUT_MINUTES="$2"
-                CODEX_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
+                CLAUDE_TIMEOUT_MINUTES="$CODEX_TIMEOUT_MINUTES"
             else
                 echo "Error: Timeout must be a positive integer between 1 and 120 minutes"
                 exit 1
             fi
             shift 2
+            ;;
+        --sandbox)
+            if [[ -z "$2" ]]; then
+                echo "Error: --sandbox requires a mode: read-only|workspace-write|danger-full-access"
+                exit 1
+            fi
+            case "$2" in
+                read-only|workspace-write|danger-full-access)
+                    CODEX_SANDBOX_MODE="$2"
+                    ;;
+                *)
+                    echo "Error: --sandbox must be one of: read-only, workspace-write, danger-full-access"
+                    exit 1
+                    ;;
+            esac
+            shift 2
+            ;;
+        --full-auto)
+            if [[ "$CODEX_DANGEROUS_BYPASS" == "true" ]]; then
+                echo "Error: --full-auto cannot be used with --dangerously-bypass-approvals-and-sandbox"
+                exit 1
+            fi
+            CODEX_FULL_AUTO=true
+            shift
+            ;;
+        --dangerously-bypass-approvals-and-sandbox)
+            if [[ "$CODEX_FULL_AUTO" == "true" ]]; then
+                echo "Error: --dangerously-bypass-approvals-and-sandbox cannot be used with --full-auto"
+                exit 1
+            fi
+            CODEX_DANGEROUS_BYPASS=true
+            shift
+            ;;
+        --profile)
+            if [[ -z "$2" ]]; then
+                echo "Error: --profile requires a profile name"
+                exit 1
+            fi
+            CODEX_PROFILE="$2"
+            shift 2
+            ;;
+        --cd)
+            if [[ -z "$2" ]]; then
+                echo "Error: --cd requires a directory path"
+                exit 1
+            fi
+            CODEX_CWD="$2"
+            shift 2
+            ;;
+        --add-dir)
+            if [[ -z "$2" ]]; then
+                echo "Error: --add-dir requires a directory path"
+                exit 1
+            fi
+            if [[ -n "$CODEX_ADD_DIRS" ]]; then
+                CODEX_ADD_DIRS="$CODEX_ADD_DIRS,$2"
+            else
+                CODEX_ADD_DIRS="$2"
+            fi
+            shift 2
+            ;;
+        --skip-git-repo-check)
+            CODEX_SKIP_GIT_REPO_CHECK=true
+            shift
+            ;;
+        --ephemeral)
+            CODEX_EPHEMERAL=true
+            shift
             ;;
         --reset-circuit)
             # Source the circuit breaker library
@@ -1714,7 +1921,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-continue)
             CODEX_USE_CONTINUE=false
-            CODEX_USE_CONTINUE="$CODEX_USE_CONTINUE"
+            CLAUDE_USE_CONTINUE="$CODEX_USE_CONTINUE"
             shift
             ;;
         --session-expiry)
@@ -1723,7 +1930,7 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CODEX_SESSION_EXPIRY_HOURS="$2"
-            CODEX_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
+            CLAUDE_SESSION_EXPIRY_HOURS="$CODEX_SESSION_EXPIRY_HOURS"
             shift 2
             ;;
         --auto-reset-circuit)

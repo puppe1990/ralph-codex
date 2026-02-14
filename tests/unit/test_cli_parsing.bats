@@ -90,6 +90,14 @@ teardown() {
     [[ "$output" == *"--output-format"* ]]
     [[ "$output" == *"--allowed-tools"* ]]
     [[ "$output" == *"--no-continue"* ]]
+    [[ "$output" == *"--sandbox"* ]]
+    [[ "$output" == *"--full-auto"* ]]
+    [[ "$output" == *"--dangerously-bypass-approvals-and-sandbox"* ]]
+    [[ "$output" == *"--profile"* ]]
+    [[ "$output" == *"--cd"* ]]
+    [[ "$output" == *"--add-dir"* ]]
+    [[ "$output" == *"--skip-git-repo-check"* ]]
+    [[ "$output" == *"--ephemeral"* ]]
 }
 
 @test "-h short flag displays help message" {
@@ -253,6 +261,89 @@ EOF
 
 @test "--allowed-tools flag accepts valid tool list" {
     run bash "$RALPH_SCRIPT" --allowed-tools "Write,Read,Bash" --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}
+
+# =============================================================================
+# CODEX RUNTIME FLAG TESTS (10 tests)
+# =============================================================================
+
+@test "--sandbox accepts valid modes" {
+    run bash "$RALPH_SCRIPT" --sandbox read-only --help
+    assert_success
+
+    run bash "$RALPH_SCRIPT" --sandbox workspace-write --help
+    assert_success
+
+    run bash "$RALPH_SCRIPT" --sandbox danger-full-access --help
+    assert_success
+}
+
+@test "--sandbox rejects invalid mode" {
+    run bash "$RALPH_SCRIPT" --sandbox invalid-mode
+
+    assert_failure
+    [[ "$output" == *"--sandbox must be one of"* ]]
+}
+
+@test "--full-auto is accepted" {
+    run bash "$RALPH_SCRIPT" --full-auto --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "--dangerously-bypass-approvals-and-sandbox is accepted" {
+    run bash "$RALPH_SCRIPT" --dangerously-bypass-approvals-and-sandbox --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "--full-auto conflicts with dangerously bypass mode" {
+    run bash "$RALPH_SCRIPT" --full-auto --dangerously-bypass-approvals-and-sandbox
+
+    assert_failure
+    [[ "$output" == *"cannot be used with"* ]]
+}
+
+@test "--profile accepts value and rejects missing value" {
+    run bash "$RALPH_SCRIPT" --profile ci --help
+    assert_success
+
+    run bash "$RALPH_SCRIPT" --profile
+    assert_failure
+    [[ "$output" == *"--profile requires a profile name"* ]]
+}
+
+@test "--cd accepts value and rejects missing value" {
+    run bash "$RALPH_SCRIPT" --cd "$TEST_DIR" --help
+    assert_success
+
+    run bash "$RALPH_SCRIPT" --cd
+    assert_failure
+    [[ "$output" == *"--cd requires a directory path"* ]]
+}
+
+@test "--add-dir accepts single and repeated values" {
+    run bash "$RALPH_SCRIPT" --add-dir "$TEST_DIR" --help
+    assert_success
+
+    run bash "$RALPH_SCRIPT" --add-dir "$TEST_DIR" --add-dir "$TEST_DIR/subdir" --help
+    assert_success
+}
+
+@test "--skip-git-repo-check is accepted" {
+    run bash "$RALPH_SCRIPT" --skip-git-repo-check --help
+
+    assert_success
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "--ephemeral is accepted" {
+    run bash "$RALPH_SCRIPT" --ephemeral --help
 
     assert_success
     [[ "$output" == *"Usage:"* ]]
