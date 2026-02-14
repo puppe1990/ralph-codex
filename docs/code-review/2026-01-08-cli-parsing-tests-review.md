@@ -187,7 +187,7 @@ The CLI parsing test file is production-ready with excellent coverage of all CLI
 
 ### References
 - BATS documentation
-- Project CLAUDE.md testing standards
+- Project AGENTS.md testing standards
 
 ### Metrics
 - **Lines of Code Reviewed:** 354

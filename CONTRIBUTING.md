@@ -532,14 +532,14 @@ All PRs must pass these automated checks:
 
 **When to Update Documentation:**
 
-- Adding new CLI flags → Update README.md, CLAUDE.md
+- Adding new CLI flags → Update README.md, AGENTS.md
 - Adding new features → Update README.md "Features" section
 - Changing behavior → Update relevant docs
-- Adding new patterns → Update CLAUDE.md
+- Adding new patterns → Update AGENTS.md
 
 **Keep in Sync:**
 
-1. **CLAUDE.md** - Technical specifications, quality standards
+1. **AGENTS.md** - Technical specifications, quality standards
 2. **README.md** - User-facing documentation, installation
 3. **Templates** - Keep template files current
 4. **Inline comments** - Update when code changes
@@ -553,7 +553,7 @@ Before marking any feature complete:
 - [ ] Commits follow conventional format
 - [ ] All commits pushed to remote
 - [ ] CI/CD pipeline passes
-- [ ] CLAUDE.md updated (if new patterns)
+- [ ] AGENTS.md updated (if new patterns)
 - [ ] README.md updated (if user-facing)
 - [ ] Breaking changes documented
 - [ ] Installation verified (if applicable)
@@ -597,7 +597,7 @@ Before marking any feature complete:
 
 **Getting Help:**
 
-- Review documentation first (README.md, CLAUDE.md)
+- Review documentation first (README.md, AGENTS.md)
 - Check [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for roadmap
 - Open issues for questions
 - Reference related issues in discussions
@@ -621,7 +621,7 @@ Before marking any feature complete:
 ## Additional Resources
 
 - [README.md](README.md) - Project overview and quick start
-- [CLAUDE.md](CLAUDE.md) - Technical specifications
+- [AGENTS.md](AGENTS.md) - Technical specifications
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - Development roadmap
 - [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) - Progress tracking
 - [GitHub Issues](https://github.com/puppe1990/ralph-codex/issues) - Bug reports and feature requests
