@@ -3,7 +3,7 @@
 [![CI](https://github.com/puppe1990/ralph-codex/actions/workflows/test.yml/badge.svg)](https://github.com/puppe1990/ralph-codex/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![Tests](https://img.shields.io/badge/tests-545%20passing-green)
+![Tests](https://img.shields.io/badge/tests-547%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/puppe1990/ralph-codex)](https://github.com/puppe1990/ralph-codex/issues)
 [![Mentioned in Awesome Codex CLI](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
