@@ -24,6 +24,9 @@ PROMPT_FILE="$RALPH_DIR/PROMPT.md"
 LOG_DIR="$RALPH_DIR/logs"
 DOCS_DIR="$RALPH_DIR/docs/generated"
 STATUS_FILE="$RALPH_DIR/status.json"
+DIAGNOSTIC_REPORT_FILE="$RALPH_DIR/diagnostics_latest.md"
+DIAGNOSTIC_REPORT_JSON_FILE="$RALPH_DIR/diagnostics_latest.json"
+DIAGNOSTIC_REPORT_LAST_EPOCH_FILE="$RALPH_DIR/.diagnostic_report_last_epoch"
 PROGRESS_FILE="$RALPH_DIR/progress.json"
 LOCK_DIR="$RALPH_DIR/.lock"
 CODEX_CODE_CMD="${CODEX_CODE_CMD:-${CLAUDE_CODE_CMD:-codex}}"
@@ -47,6 +50,10 @@ CODEX_STATUS_LAST_REFRESH_FILE="$RALPH_DIR/.codex_status_last_refresh_epoch"
 CODEX_STATUS_REFRESH_INTERVAL_SECONDS="${CODEX_STATUS_REFRESH_INTERVAL_SECONDS:-300}"
 CODEX_AUTO_WAIT_ON_API_LIMIT="${CODEX_AUTO_WAIT_ON_API_LIMIT:-true}"
 CODEX_API_LIMIT_WAIT_MINUTES="${CODEX_API_LIMIT_WAIT_MINUTES:-60}"
+RALPH_ORPHAN_STATUS_THRESHOLD_SECONDS="${RALPH_ORPHAN_STATUS_THRESHOLD_SECONDS:-60}"
+CODEX_LOG_PROGRESS="${CODEX_LOG_PROGRESS:-true}"
+CODEX_PROGRESS_LOG_INTERVAL_SECONDS="${CODEX_PROGRESS_LOG_INTERVAL_SECONDS:-30}"
+DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS="${DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS:-20}"
 
 # Runtime capability detection (populated by detect_codex_structured_output_capabilities)
 CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE=false
@@ -76,6 +83,9 @@ _env_CODEX_OUTPUT_SCHEMA_FILE="${CODEX_OUTPUT_SCHEMA_FILE:-}"
 _env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS="${CODEX_STATUS_REFRESH_INTERVAL_SECONDS:-}"
 _env_CODEX_AUTO_WAIT_ON_API_LIMIT="${CODEX_AUTO_WAIT_ON_API_LIMIT:-}"
 _env_CODEX_API_LIMIT_WAIT_MINUTES="${CODEX_API_LIMIT_WAIT_MINUTES:-}"
+_env_CODEX_LOG_PROGRESS="${CODEX_LOG_PROGRESS:-}"
+_env_CODEX_PROGRESS_LOG_INTERVAL_SECONDS="${CODEX_PROGRESS_LOG_INTERVAL_SECONDS:-}"
+_env_DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS="${DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
@@ -250,6 +260,9 @@ load_ralphrc() {
     [[ -n "$_env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS" ]] && CODEX_STATUS_REFRESH_INTERVAL_SECONDS="$_env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS"
     [[ -n "$_env_CODEX_AUTO_WAIT_ON_API_LIMIT" ]] && CODEX_AUTO_WAIT_ON_API_LIMIT="$_env_CODEX_AUTO_WAIT_ON_API_LIMIT"
     [[ -n "$_env_CODEX_API_LIMIT_WAIT_MINUTES" ]] && CODEX_API_LIMIT_WAIT_MINUTES="$_env_CODEX_API_LIMIT_WAIT_MINUTES"
+    [[ -n "$_env_CODEX_LOG_PROGRESS" ]] && CODEX_LOG_PROGRESS="$_env_CODEX_LOG_PROGRESS"
+    [[ -n "$_env_CODEX_PROGRESS_LOG_INTERVAL_SECONDS" ]] && CODEX_PROGRESS_LOG_INTERVAL_SECONDS="$_env_CODEX_PROGRESS_LOG_INTERVAL_SECONDS"
+    [[ -n "$_env_DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS" ]] && DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS="$_env_DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS"
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
@@ -730,6 +743,254 @@ get_file_mtime_epoch() {
     echo "0"
 }
 
+latest_log_file_by_pattern() {
+    local pattern=$1
+    local latest_file=""
+    local latest_mtime=0
+    local file=""
+    local file_mtime=0
+
+    while IFS= read -r file; do
+        [[ -n "$file" ]] || continue
+        file_mtime=$(get_file_mtime_epoch "$file")
+        if [[ "$file_mtime" -gt "$latest_mtime" ]]; then
+            latest_mtime=$file_mtime
+            latest_file="$file"
+        fi
+    done < <(find "$LOG_DIR" -maxdepth 1 -type f -name "$pattern" 2>/dev/null)
+
+    echo "$latest_file"
+}
+
+should_refresh_diagnostic_report() {
+    local force=${1:-false}
+    if [[ "$force" == "true" ]]; then
+        return 0
+    fi
+
+    local interval=${DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS:-20}
+    if ! [[ "$interval" =~ ^[0-9]+$ ]] || [[ "$interval" -lt 5 ]]; then
+        interval=20
+    fi
+
+    local now_epoch
+    now_epoch=$(get_now_epoch)
+    local last_epoch=0
+    if [[ -f "$DIAGNOSTIC_REPORT_LAST_EPOCH_FILE" ]]; then
+        last_epoch=$(cat "$DIAGNOSTIC_REPORT_LAST_EPOCH_FILE" 2>/dev/null || echo "0")
+    fi
+    [[ "$last_epoch" =~ ^[0-9]+$ ]] || last_epoch=0
+
+    if [[ $((now_epoch - last_epoch)) -lt $interval ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+diagnostic_recommendation_for_state() {
+    local status_name=$1
+    local last_action=$2
+    local exit_reason=$3
+    local runtime_health=$4
+
+    if [[ "$exit_reason" == "permission_denied" ]]; then
+        echo "Adjust Codex approval/sandbox policy, then run 'ralph --reset-session' and restart."
+        return 0
+    fi
+    if [[ "$exit_reason" == "api_5hour_limit" ]] || [[ "$last_action" == "api_limit" ]]; then
+        echo "Wait for quota reset and keep auto-wait enabled. Verify /status snapshot freshness."
+        return 0
+    fi
+    if [[ "$exit_reason" == "execution_timeout" ]] || [[ "$last_action" == "timeout" ]] || [[ "$status_name" == "retrying" ]]; then
+        echo "Increase CODEX_TIMEOUT_MINUTES or split the prompt into smaller tasks."
+        return 0
+    fi
+    if [[ "$status_name" == "stopped_unexpected" ]] || [[ "$exit_reason" == "process_missing" ]] || [[ "$runtime_health" == "stale_or_offline" ]]; then
+        echo "Process appears offline. Run 'ralph --reset-session' then restart with 'ralph --monitor'."
+        return 0
+    fi
+    if [[ "$status_name" == "error" ]] || [[ "$last_action" == "failed" ]]; then
+        echo "Inspect latest codex_output/codex_stderr logs and address the first non-ignorable error."
+        return 0
+    fi
+    if [[ "$status_name" == "success" ]] || [[ "$status_name" == "running" ]]; then
+        echo "No immediate action required."
+        return 0
+    fi
+    echo "Review status.json and recent logs to determine the next recovery step."
+}
+
+refresh_diagnostic_report() {
+    local force=${1:-false}
+    should_refresh_diagnostic_report "$force" || return 0
+
+    local now_iso
+    now_iso=$(get_iso_timestamp)
+    local now_epoch
+    now_epoch=$(get_now_epoch)
+
+    local loop_count=0
+    local calls_made=0
+    local max_calls=$MAX_CALLS_PER_HOUR
+    local status_name="unknown"
+    local last_action="unknown"
+    local exit_reason=""
+    local status_ts=""
+    local status_age_seconds=0
+    local codex_quota_source="none"
+    local quota_5h_remaining=""
+    local quota_5h_reset=""
+    local quota_weekly_remaining=""
+    local quota_weekly_reset=""
+
+    if [[ -f "$STATUS_FILE" ]] && command -v jq >/dev/null 2>&1; then
+        loop_count=$(jq -r '.loop_count // 0' "$STATUS_FILE" 2>/dev/null || echo "0")
+        calls_made=$(jq -r '.calls_made_this_hour // 0' "$STATUS_FILE" 2>/dev/null || echo "0")
+        max_calls=$(jq -r '.max_calls_per_hour // 0' "$STATUS_FILE" 2>/dev/null || echo "0")
+        status_name=$(jq -r '.status // "unknown"' "$STATUS_FILE" 2>/dev/null || echo "unknown")
+        last_action=$(jq -r '.last_action // "unknown"' "$STATUS_FILE" 2>/dev/null || echo "unknown")
+        exit_reason=$(jq -r '.exit_reason // ""' "$STATUS_FILE" 2>/dev/null || echo "")
+        status_ts=$(jq -r '.timestamp // ""' "$STATUS_FILE" 2>/dev/null || echo "")
+        codex_quota_source=$(jq -r '.codex_quota_effective.source // "none"' "$STATUS_FILE" 2>/dev/null || echo "none")
+        quota_5h_remaining=$(jq -r '.codex_quota_effective.five_hour.remaining_percent // ""' "$STATUS_FILE" 2>/dev/null || echo "")
+        quota_5h_reset=$(jq -r '.codex_quota_effective.five_hour.resets_at // ""' "$STATUS_FILE" 2>/dev/null || echo "")
+        quota_weekly_remaining=$(jq -r '.codex_quota_effective.weekly.remaining_percent // ""' "$STATUS_FILE" 2>/dev/null || echo "")
+        quota_weekly_reset=$(jq -r '.codex_quota_effective.weekly.resets_at // ""' "$STATUS_FILE" 2>/dev/null || echo "")
+    fi
+
+    [[ "$loop_count" =~ ^[0-9]+$ ]] || loop_count=0
+    [[ "$calls_made" =~ ^[0-9]+$ ]] || calls_made=0
+    [[ "$max_calls" =~ ^[0-9]+$ ]] || max_calls=0
+
+    if [[ -n "$status_ts" ]]; then
+        local status_epoch
+        status_epoch=$(parse_iso_to_epoch "$status_ts")
+        if [[ "$status_epoch" =~ ^[0-9]+$ ]] && [[ "$status_epoch" -gt 0 ]]; then
+            status_age_seconds=$((now_epoch - status_epoch))
+            [[ "$status_age_seconds" -ge 0 ]] || status_age_seconds=0
+        fi
+    fi
+
+    local runtime_health="active"
+    if [[ "$status_age_seconds" -gt "${RALPH_ORPHAN_STATUS_THRESHOLD_SECONDS:-60}" ]]; then
+        runtime_health="stale_or_offline"
+    fi
+    if [[ "$status_name" == "stopped_unexpected" ]] || [[ "$exit_reason" == "process_missing" ]]; then
+        runtime_health="stale_or_offline"
+    fi
+
+    local latest_output_file=""
+    local latest_stderr_file=""
+    local latest_events_file=""
+    latest_output_file=$(latest_log_file_by_pattern "codex_output_*.log")
+    latest_stderr_file=$(latest_log_file_by_pattern "codex_stderr_*.log")
+    latest_events_file=$(latest_log_file_by_pattern "codex_events_*.jsonl")
+
+    local last_progress_line=""
+    if [[ -f "$LOG_DIR/ralph.log" ]]; then
+        last_progress_line=$(grep 'Codex progress:' "$LOG_DIR/ralph.log" 2>/dev/null | tail -1 | sed -E 's/^.*Codex progress: //')
+    fi
+    if [[ -z "$last_progress_line" ]]; then
+        last_progress_line="(no recent Codex progress line)"
+    fi
+
+    local recommendation
+    recommendation=$(diagnostic_recommendation_for_state "$status_name" "$last_action" "$exit_reason" "$runtime_health")
+
+    cat > "$DIAGNOSTIC_REPORT_FILE" << EOF
+# Ralph Diagnostic Report
+
+- generated_at: $now_iso
+- project_dir: $(pwd)
+
+## Runtime
+- status: $status_name
+- last_action: $last_action
+- exit_reason: ${exit_reason:-none}
+- runtime_health: $runtime_health
+- status_age_seconds: $status_age_seconds
+- loop_count: $loop_count
+- calls_this_hour: $calls_made/$max_calls
+
+## Codex Quota
+- source: $codex_quota_source
+- 5h_remaining_percent: ${quota_5h_remaining:-unknown}
+- 5h_resets_at: ${quota_5h_reset:-unknown}
+- weekly_remaining_percent: ${quota_weekly_remaining:-unknown}
+- weekly_resets_at: ${quota_weekly_reset:-unknown}
+
+## Recent Artifacts
+- latest_codex_output: ${latest_output_file:-none}
+- latest_codex_stderr: ${latest_stderr_file:-none}
+- latest_codex_events: ${latest_events_file:-none}
+- last_codex_progress: $last_progress_line
+
+## Recommended Next Action
+$recommendation
+EOF
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -n \
+            --arg generated_at "$now_iso" \
+            --arg project_dir "$(pwd)" \
+            --arg status "$status_name" \
+            --arg last_action "$last_action" \
+            --arg exit_reason "${exit_reason:-}" \
+            --arg runtime_health "$runtime_health" \
+            --argjson status_age_seconds "$status_age_seconds" \
+            --argjson loop_count "$loop_count" \
+            --argjson calls_made "$calls_made" \
+            --argjson max_calls "$max_calls" \
+            --arg quota_source "$codex_quota_source" \
+            --arg quota_5h_remaining "${quota_5h_remaining:-}" \
+            --arg quota_5h_reset "${quota_5h_reset:-}" \
+            --arg quota_weekly_remaining "${quota_weekly_remaining:-}" \
+            --arg quota_weekly_reset "${quota_weekly_reset:-}" \
+            --arg latest_output "${latest_output_file:-}" \
+            --arg latest_stderr "${latest_stderr_file:-}" \
+            --arg latest_events "${latest_events_file:-}" \
+            --arg last_progress "$last_progress_line" \
+            --arg recommendation "$recommendation" \
+            '{
+                generated_at: $generated_at,
+                project_dir: $project_dir,
+                runtime: {
+                    status: $status,
+                    last_action: $last_action,
+                    exit_reason: ($exit_reason | select(length > 0) // "none"),
+                    health: $runtime_health,
+                    status_age_seconds: $status_age_seconds,
+                    loop_count: $loop_count,
+                    calls_this_hour: {
+                        used: $calls_made,
+                        max: $max_calls
+                    }
+                },
+                codex_quota: {
+                    source: $quota_source,
+                    five_hour: {
+                        remaining_percent: ($quota_5h_remaining | select(length > 0) // "unknown"),
+                        resets_at: ($quota_5h_reset | select(length > 0) // "unknown")
+                    },
+                    weekly: {
+                        remaining_percent: ($quota_weekly_remaining | select(length > 0) // "unknown"),
+                        resets_at: ($quota_weekly_reset | select(length > 0) // "unknown")
+                    }
+                },
+                artifacts: {
+                    latest_codex_output: ($latest_output | select(length > 0) // "none"),
+                    latest_codex_stderr: ($latest_stderr | select(length > 0) // "none"),
+                    latest_codex_events: ($latest_events | select(length > 0) // "none"),
+                    last_codex_progress: $last_progress
+                },
+                recommendation: $recommendation
+            }' > "$DIAGNOSTIC_REPORT_JSON_FILE"
+    fi
+
+    echo "$now_epoch" > "$DIAGNOSTIC_REPORT_LAST_EPOCH_FILE"
+}
+
 list_codex_rollout_files_by_mtime_desc() {
     local sessions_dir="${CODEX_HOME:-$HOME/.codex}"
     local session_path="$sessions_dir/sessions"
@@ -1038,7 +1299,7 @@ update_status() {
         codex_quota_effective_json=$(build_effective_quota_json 2>/dev/null || echo "$codex_quota_effective_json")
     fi
 
-    cat > "$STATUS_FILE" << STATUSEOF
+cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(get_iso_timestamp)",
     "loop_count": $loop_count,
@@ -1066,6 +1327,8 @@ update_status() {
     "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
+
+    refresh_diagnostic_report false || true
 }
 
 # Check if we can make another call
@@ -2020,6 +2283,8 @@ execute_codex_code() {
     local codex_pid=$!
     CODEX_ACTIVE_PID=$codex_pid
     local progress_counter=0
+    local progress_last_logged_line=""
+    local progress_last_logged_seconds=0
 
     # Show progress while Codex is running
     while kill -0 $codex_pid 2>/dev/null; do
@@ -2038,13 +2303,34 @@ execute_codex_code() {
             cp "$jsonl_file" "$LIVE_LOG_FILE" 2>/dev/null
         fi
 
+        local elapsed_seconds=$((progress_counter * 10))
+        if [[ "$CODEX_LOG_PROGRESS" == "true" ]]; then
+            local progress_interval="$CODEX_PROGRESS_LOG_INTERVAL_SECONDS"
+            if ! [[ "$progress_interval" =~ ^[0-9]+$ ]] || [[ "$progress_interval" -lt 10 ]]; then
+                progress_interval=30
+            fi
+
+            if [[ -n "$last_line" && "$last_line" != "$progress_last_logged_line" ]]; then
+                log_status "INFO" "Codex progress: $last_line"
+                progress_last_logged_line="$last_line"
+                progress_last_logged_seconds=$elapsed_seconds
+            elif [[ $((elapsed_seconds - progress_last_logged_seconds)) -ge $progress_interval ]]; then
+                if [[ -n "$last_line" ]]; then
+                    log_status "INFO" "Codex progress: $last_line (${elapsed_seconds}s elapsed)"
+                else
+                    log_status "INFO" "Codex progress: working (${elapsed_seconds}s elapsed)"
+                fi
+                progress_last_logged_seconds=$elapsed_seconds
+            fi
+        fi
+
         # Update progress file for monitor
         cat > "$PROGRESS_FILE" << EOF
 {
     "status": "executing",
     "loop_count": $loop_count,
     "indicator": "$progress_indicator",
-    "elapsed_seconds": $((progress_counter * 10)),
+    "elapsed_seconds": $elapsed_seconds,
     "last_output": "$last_line",
     "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')"
 }
@@ -2265,6 +2551,56 @@ terminate_active_codex_processes() {
     CODEX_ACTIVE_PID=0
 }
 
+reconcile_stale_running_status() {
+    [[ -f "$STATUS_FILE" ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+
+    local status_name
+    status_name=$(jq -r '.status // ""' "$STATUS_FILE" 2>/dev/null || echo "")
+    case "$status_name" in
+        running|paused|retrying)
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    local threshold="$RALPH_ORPHAN_STATUS_THRESHOLD_SECONDS"
+    if ! [[ "$threshold" =~ ^[0-9]+$ ]] || [[ "$threshold" -le 0 ]]; then
+        threshold=60
+    fi
+
+    local status_ts status_epoch now_epoch age_seconds
+    status_ts=$(jq -r '.timestamp // empty' "$STATUS_FILE" 2>/dev/null || echo "")
+    [[ -n "$status_ts" ]] || return 0
+    status_epoch=$(parse_iso_to_epoch "$status_ts")
+    now_epoch=$(get_now_epoch)
+    age_seconds=$((now_epoch - status_epoch))
+    [[ "$age_seconds" -ge "$threshold" ]] || return 0
+
+    local lock_pid=""
+    if [[ -f "$LOCK_DIR/pid" ]]; then
+        lock_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")
+    fi
+    if [[ "$lock_pid" =~ ^[0-9]+$ ]] && kill -0 "$lock_pid" 2>/dev/null; then
+        return 0
+    fi
+
+    local updated
+    updated=$(jq \
+        --arg ts "$(get_iso_timestamp)" \
+        '.timestamp = $ts
+         | .status = "stopped_unexpected"
+         | .last_action = "process_missing"
+         | .exit_reason = "process_missing"' \
+        "$STATUS_FILE" 2>/dev/null || true)
+
+    if [[ -n "$updated" ]]; then
+        echo "$updated" > "$STATUS_FILE"
+        log_status "WARN" "Detected stale running status with no active process; marked as stopped_unexpected."
+    fi
+}
+
 # Main loop
 main() {
     # Load project-specific configuration from .ralphrc
@@ -2322,6 +2658,7 @@ main() {
     fi
 
     # Initialize session tracking before entering the loop
+    reconcile_stale_running_status
     init_session_tracking
     SESSION_START_EPOCH=$(get_now_epoch)
 
@@ -2468,6 +2805,7 @@ Options:
     -c, --calls NUM         Set max calls per hour (default: $MAX_CALLS_PER_HOUR)
     -p, --prompt FILE       Set prompt file (default: $PROMPT_FILE)
     -s, --status            Show current status and exit
+    --diagnostics           Show consolidated diagnostics report and exit
     -m, --monitor           Start with tmux session and live monitor (requires tmux)
     -v, --verbose           Show detailed progress updates during execution
     -l, --live              Deprecated compatibility flag (ignored; Codex runs in JSONL mode)
@@ -2496,6 +2834,8 @@ Files created:
     - $LOG_DIR/: All execution logs
     - $DOCS_DIR/: Generated documentation
     - $STATUS_FILE: Current status (JSON)
+    - $DIAGNOSTIC_REPORT_FILE: Consolidated diagnostics report (Markdown)
+    - $DIAGNOSTIC_REPORT_JSON_FILE: Consolidated diagnostics payload (JSON)
     - .ralph/.ralph_session: Session lifecycle tracking
     - .ralph/.ralph_session_history: Session transition history (last 50)
     - .ralph/.call_count: API call counter for rate limiting
@@ -2543,6 +2883,21 @@ while [[ $# -gt 0 ]]; do
                 cat "$STATUS_FILE" | jq . 2>/dev/null || cat "$STATUS_FILE"
             else
                 echo "No status file found. Ralph may not be running."
+            fi
+            exit 0
+            ;;
+        --diagnostics)
+            refresh_diagnostic_report true || true
+            if [[ -f "$DIAGNOSTIC_REPORT_FILE" ]]; then
+                cat "$DIAGNOSTIC_REPORT_FILE"
+                echo ""
+                echo "Diagnostics files:"
+                echo "  - $DIAGNOSTIC_REPORT_FILE"
+                if [[ -f "$DIAGNOSTIC_REPORT_JSON_FILE" ]]; then
+                    echo "  - $DIAGNOSTIC_REPORT_JSON_FILE"
+                fi
+            else
+                echo "No diagnostics report found yet."
             fi
             exit 0
             ;;

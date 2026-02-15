@@ -471,6 +471,11 @@ EOF
     [[ "$output" == *"--ephemeral"* ]]
 }
 
+@test "show_help includes --diagnostics option" {
+    run bash "${BATS_TEST_DIRNAME}/../../ralph_loop.sh" --help
+    [[ "$output" == *"--diagnostics"* ]]
+}
+
 @test "append_codex_runtime_flags includes all supported native flags in implementation" {
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 

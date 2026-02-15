@@ -39,6 +39,9 @@ Important keys:
 - `CODEX_TIMEOUT_MINUTES` (default: `15`)
 - `CODEX_AUTO_WAIT_ON_API_LIMIT` (default: `true`)
 - `CODEX_API_LIMIT_WAIT_MINUTES` (default: `60`)
+- `CODEX_LOG_PROGRESS` (default: `true`)
+- `CODEX_PROGRESS_LOG_INTERVAL_SECONDS` (default: `30`)
+- `DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS` (default: `20`)
 - `CODEX_USE_CONTINUE` (default: `true`)
 - `CODEX_SESSION_EXPIRY_HOURS` (default: `24`)
 - `CODEX_MIN_VERSION` (default: `0.80.0`)
@@ -60,10 +63,12 @@ Compatibility no-op keys (kept only for older configs):
 - API usage-limit waits should prefer real reset epochs from Codex snapshot data (`5h_resets_at`) before fallback minutes.
 - Permission failures should guide users to sandbox/approval configuration first.
 - Known Codex state-db rollout warnings (`state db missing rollout path`, `state db record_discrepancy`) should be treated as non-fatal diagnostics.
+- On startup, Ralph should reconcile stale orphaned runtime state by converting stale `running/paused/retrying` status to `stopped_unexpected` when no active process lock exists.
 - Real implementation progress is scoped to changes under `src/` or `tests/`; `.ralph/*` docs-only edits should not count as code progress.
 - Enable/setup/bootstrap commands must update project `.gitignore` to hide Ralph runtime artifacts (logs, session/counter state, status/progress JSON files).
 - Status telemetry must include loop/timer fields consumed by monitor tooling: `current_loop`, `total_loops_executed`, `session_elapsed_seconds|hms`, and `loop_elapsed_seconds|hms`.
 - Status telemetry must include canonical quota telemetry in `codex_quota_effective` (`source`, `five_hour`, `weekly`) to avoid UI/log parser divergence.
+- Ralph should maintain consolidated diagnostics artifacts at `.ralph/diagnostics_latest.md` and `.ralph/diagnostics_latest.json` for troubleshooting/export.
 
 ## Development Commands
 

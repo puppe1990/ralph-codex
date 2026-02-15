@@ -82,6 +82,7 @@ teardown() {
     [[ "$output" == *"--calls"* ]]
     [[ "$output" == *"--prompt"* ]]
     [[ "$output" == *"--status"* ]]
+    [[ "$output" == *"--diagnostics"* ]]
     [[ "$output" == *"--monitor"* ]]
     [[ "$output" == *"--verbose"* ]]
     [[ "$output" == *"--timeout"* ]]
@@ -213,6 +214,14 @@ EOF
 
     assert_success
     [[ "$output" == *"No status file found"* ]]
+}
+
+@test "--diagnostics generates consolidated report output" {
+    run bash "$RALPH_SCRIPT" --diagnostics
+
+    assert_success
+    [[ "$output" == *"Ralph Diagnostic Report"* ]]
+    [[ "$output" == *".ralph/diagnostics_latest.md"* ]]
 }
 
 # =============================================================================

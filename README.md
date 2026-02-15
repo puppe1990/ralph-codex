@@ -150,6 +150,7 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 - **Configuration Files** - `.ralphrc` for project-specific settings and tool permissions
 - **Comprehensive Logging** - Detailed execution logs with timestamps and status tracking
 - **Loop + Timer Telemetry** - `status.json` and `ralph-monitor` now show current loop, total loops, session timer, and current loop timer
+- **Stale Runtime Reconciliation** - On startup, stale `running/paused/retrying` status without active process is marked as `stopped_unexpected`
 - **Configurable Timeouts** - Set execution timeout for Codex CLI operations (1-120 minutes)
 - **Verbose Progress Mode** - Optional detailed progress updates during execution
 - **Response Analyzer** - AI-powered analysis of Codex CLI responses with semantic understanding
@@ -411,6 +412,9 @@ MAX_CALLS_PER_HOUR=100
 CODEX_TIMEOUT_MINUTES=15
 CODEX_AUTO_WAIT_ON_API_LIMIT=true
 CODEX_API_LIMIT_WAIT_MINUTES=60
+CODEX_LOG_PROGRESS=true
+CODEX_PROGRESS_LOG_INTERVAL_SECONDS=30
+DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS=20
 CODEX_OUTPUT_FORMAT="json"  # Deprecated no-op in Codex mode
 
 # Tool permissions
@@ -426,6 +430,12 @@ CB_NO_PROGRESS_THRESHOLD=3
 CB_SAME_ERROR_THRESHOLD=5
 ```
 
+Progress logging notes:
+- `CODEX_LOG_PROGRESS=true` writes Codex activity updates to `.ralph/logs/ralph.log` even without `--verbose`.
+- `CODEX_PROGRESS_LOG_INTERVAL_SECONDS` controls heartbeat frequency when there is no new event text.
+- Ralph writes consolidated diagnostics to `.ralph/diagnostics_latest.md` and `.ralph/diagnostics_latest.json`.
+- `DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS` throttles diagnostics regeneration during rapid status updates.
+
 ### Rate Limiting & Circuit Breaker
 
 Ralph includes intelligent rate limiting and circuit breaker functionality:
@@ -439,6 +449,9 @@ ralph --monitor --calls 50
 
 # Check current usage
 ralph --status
+
+# Show consolidated diagnostics report
+ralph --diagnostics
 ```
 
 The circuit breaker automatically:
