@@ -465,3 +465,15 @@ EOF
     # Short output after long one should increase confidence of completion
     [[ "$confidence" -gt 0 ]]
 }
+
+# Test 21: Integration regression - API limit pause status and auto retry wiring
+@test "api limit flow updates paused status with countdown and resumes automatically" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n "api_limit_paused\\|api_limit_wait_started_epoch\\|api_limit_wait_retry_at_epoch\\|api_limit_wait_remaining_seconds\\|wait_for_api_limit_retry\\|api_limit_retry" "$script"
+    assert_success
+    [[ "$output" == *"api_limit_paused"* ]]
+    [[ "$output" == *"api_limit_wait_remaining_seconds"* ]]
+    [[ "$output" == *"wait_for_api_limit_retry"* ]]
+    [[ "$output" == *"api_limit_retry"* ]]
+}

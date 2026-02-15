@@ -276,6 +276,40 @@ mkdir -p "$LOG_DIR" "$DOCS_DIR"
 LOCK_ACQUIRED=false
 SESSION_START_EPOCH=0
 CURRENT_LOOP_START_EPOCH=0
+API_LIMIT_PAUSED=false
+API_LIMIT_WAIT_STARTED_EPOCH=0
+API_LIMIT_WAIT_RETRY_AT_EPOCH=0
+API_LIMIT_WAIT_REMAINING_SECONDS=0
+
+set_api_limit_pause_state() {
+    local wait_seconds=${1:-0}
+    local now_epoch
+    now_epoch=$(get_now_epoch)
+
+    if ! [[ "$wait_seconds" =~ ^[0-9]+$ ]] || [[ "$wait_seconds" -lt 0 ]]; then
+        wait_seconds=0
+    fi
+
+    API_LIMIT_PAUSED=true
+    API_LIMIT_WAIT_STARTED_EPOCH=$now_epoch
+    API_LIMIT_WAIT_REMAINING_SECONDS=$wait_seconds
+    API_LIMIT_WAIT_RETRY_AT_EPOCH=$((now_epoch + wait_seconds))
+}
+
+update_api_limit_pause_remaining() {
+    local remaining=${1:-0}
+    if ! [[ "$remaining" =~ ^[0-9]+$ ]] || [[ "$remaining" -lt 0 ]]; then
+        remaining=0
+    fi
+    API_LIMIT_WAIT_REMAINING_SECONDS=$remaining
+}
+
+clear_api_limit_pause_state() {
+    API_LIMIT_PAUSED=false
+    API_LIMIT_WAIT_STARTED_EPOCH=0
+    API_LIMIT_WAIT_RETRY_AT_EPOCH=0
+    API_LIMIT_WAIT_REMAINING_SECONDS=0
+}
 
 # Acquire a per-project lock to prevent concurrent loops from corrupting state files.
 acquire_instance_lock() {
@@ -852,6 +886,11 @@ update_status() {
         [[ "$codex_quota_last_refresh_epoch" =~ ^[0-9]+$ ]] || codex_quota_last_refresh_epoch=0
     fi
 
+    local api_limit_paused_json=false
+    if [[ "$API_LIMIT_PAUSED" == "true" ]]; then
+        api_limit_paused_json=true
+    fi
+
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(get_iso_timestamp)",
@@ -872,6 +911,10 @@ update_status() {
     "codex_quota_snapshot_file": "$CODEX_STATUS_SNAPSHOT_FILE",
     "codex_quota_refresh_interval_seconds": $CODEX_STATUS_REFRESH_INTERVAL_SECONDS,
     "codex_quota_last_refresh_epoch": $codex_quota_last_refresh_epoch,
+    "api_limit_paused": $api_limit_paused_json,
+    "api_limit_wait_started_epoch": $API_LIMIT_WAIT_STARTED_EPOCH,
+    "api_limit_wait_retry_at_epoch": $API_LIMIT_WAIT_RETRY_AT_EPOCH,
+    "api_limit_wait_remaining_seconds": $API_LIMIT_WAIT_REMAINING_SECONDS,
     "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
@@ -944,8 +987,12 @@ wait_for_api_limit_retry() {
 
     local wait_seconds=$((wait_minutes * 60))
     log_status "WARN" "API usage limit reached. Auto-wait enabled, retrying in ${wait_minutes} minute(s)."
+    set_api_limit_pause_state "$wait_seconds"
 
     while [[ $wait_seconds -gt 0 ]]; do
+        update_api_limit_pause_remaining "$wait_seconds"
+        update_status "${loop_count:-0}" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "api_limit" "paused" "api_5hour_limit"
+
         local minutes=$((wait_seconds / 60))
         local seconds=$((wait_seconds % 60))
         printf "\r${YELLOW}Time until retry: %02d:%02d${NC}" "$minutes" "$seconds"
@@ -955,6 +1002,9 @@ wait_for_api_limit_retry() {
         sleep 1
         ((wait_seconds--))
     done
+    update_api_limit_pause_remaining 0
+    update_status "${loop_count:-0}" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "api_limit_retry" "running"
+    clear_api_limit_pause_state
     printf "\n"
 }
 
@@ -2087,6 +2137,7 @@ main() {
     while true; do
         loop_count=$((loop_count + 1))
         CURRENT_LOOP_START_EPOCH=$(get_now_epoch)
+        clear_api_limit_pause_state
 
         # Update session last_used timestamp
         update_session_last_used
@@ -2174,13 +2225,19 @@ main() {
             break
         elif [ $exec_result -eq 2 ]; then
             # API 5-hour limit reached - handle specially
+            local wait_minutes=${CODEX_API_LIMIT_WAIT_MINUTES:-60}
+            if ! [[ "$wait_minutes" =~ ^[0-9]+$ ]] || [[ "$wait_minutes" -le 0 ]]; then
+                wait_minutes=60
+            fi
+            set_api_limit_pause_state $((wait_minutes * 60))
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
             log_status "WARN" "🛑 API usage limit reached!"
 
             if [[ "$CODEX_AUTO_WAIT_ON_API_LIMIT" == "true" ]]; then
-                wait_for_api_limit_retry "$CODEX_API_LIMIT_WAIT_MINUTES"
+                wait_for_api_limit_retry "$wait_minutes"
             else
                 log_status "INFO" "Auto-wait on API limit is disabled. Exiting loop."
+                clear_api_limit_pause_state
                 update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
                 break
             fi
