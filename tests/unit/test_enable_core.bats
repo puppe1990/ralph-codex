@@ -129,6 +129,8 @@ teardown() {
 
     assert_success
     [[ -f ".gitignore" ]]
+    [[ "$(cat .gitignore)" == *".ralph/"* ]]
+    [[ "$(cat .gitignore)" == *".ralphrc"* ]]
     [[ "$(cat .gitignore)" == *".ralph/logs/"* ]]
     [[ "$(cat .gitignore)" == *".ralph/status.json"* ]]
     [[ "$(cat .gitignore)" == *".ralph/.response_analysis"* ]]

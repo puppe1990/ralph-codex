@@ -526,15 +526,15 @@ teardown() {
     grep -qF "$expected_tools" test-project/.ralphrc
 }
 
-@test "setup.sh .ralphrc is committed in initial git commit" {
+@test "setup.sh .ralphrc is ignored by git in initial project setup" {
     bash "$SETUP_SCRIPT" test-project
 
     cd test-project
-    # Verify .ralphrc is tracked by git (not in untracked files)
+    # .ralphrc should exist locally but be ignored by git.
     run command git ls-files .ralphrc
 
     assert_success
-    assert_equal "$output" ".ralphrc"
+    assert_equal "$output" ""
 }
 
 @test "setup.sh .ralphrc contains project name" {
@@ -550,6 +550,10 @@ teardown() {
     assert_success
     assert_file_exists "test-project/.gitignore"
 
+    run grep -E '^.ralph/$' "test-project/.gitignore"
+    assert_success
+    run grep -E '^.ralphrc$' "test-project/.gitignore"
+    assert_success
     run grep -E '^.ralph/logs/$' "test-project/.gitignore"
     assert_success
     run grep -E '^.ralph/status.json$' "test-project/.gitignore"

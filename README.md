@@ -200,7 +200,7 @@ ralph-enable --from prd ./docs/requirements.md
 ralph --monitor
 ```
 
-`ralph-enable` also updates your project's `.gitignore` to hide ephemeral Ralph runtime files (`.ralph/logs/`, `.ralph/status.json`, session/counter state files, etc.).
+`ralph-enable` also updates your project's `.gitignore` to hide Ralph artifacts by default (`.ralph/`, `.ralphrc`, plus runtime/session files).
 
 #### Option B: Import Existing PRD/Specifications
 ```bash

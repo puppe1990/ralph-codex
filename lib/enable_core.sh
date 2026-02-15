@@ -223,6 +223,8 @@ ensure_ralph_gitignore_entries() {
     local gitignore_file=".gitignore"
     local marker="# Ralph runtime artifacts"
     local entries=(
+        ".ralph/"
+        ".ralphrc"
         ".ralph/logs/"
         ".ralph/live.log"
         ".ralph/status.json"
