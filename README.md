@@ -140,7 +140,8 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 - **Session Expiration** - Configurable timeout (default: 24 hours) with automatic session reset
 - **Timeout Recovery** - Timeout failures are logged explicitly and retried without silent loop termination
 - **Rate Limiting** - Built-in API call management with hourly limits and countdown timers
-- **5-Hour API Limit Handling** - Detects Codex CLI usage usage limit and offers wait/exit options
+- **5-Hour API Limit Handling** - Detects Codex CLI usage limit and pauses safely
+- **Auto Resume on API Limit** - Pauses with countdown and resumes automatically after wait window
 - **Live Monitoring** - Real-time dashboard showing loop status, progress, and logs
 - **Tmux Auto-Close** - `ralph --monitor` tears down its tmux session when the main loop exits
 - **Task Management** - Structured approach with prioritized task lists and progress tracking
@@ -408,6 +409,8 @@ PROJECT_TYPE="typescript"
 # Loop settings
 MAX_CALLS_PER_HOUR=100
 CODEX_TIMEOUT_MINUTES=15
+CODEX_AUTO_WAIT_ON_API_LIMIT=true
+CODEX_API_LIMIT_WAIT_MINUTES=60
 CODEX_OUTPUT_FORMAT="json"  # Deprecated no-op in Codex mode
 
 # Tool permissions
@@ -461,10 +464,19 @@ ralph --auto-reset-circuit
 
 When Codex CLI usage usage limit is reached, Ralph:
 1. Detects the limit error automatically
-2. Prompts you to choose:
-   - **Option 1**: Wait 60 minutes for the limit to reset (with countdown timer)
-   - **Option 2**: Exit gracefully (or auto-exits after 30-second timeout)
-3. Prevents endless retry loops that waste time
+2. Sets loop status to `paused` and starts countdown wait
+3. Retries automatically after the wait window
+4. Prevents endless fast-retry loops that waste calls
+
+Configurable behavior:
+```bash
+# default: keep waiting and auto-retry
+CODEX_AUTO_WAIT_ON_API_LIMIT=true
+CODEX_API_LIMIT_WAIT_MINUTES=60
+
+# optional: disable auto-wait and stop loop on limit
+CODEX_AUTO_WAIT_ON_API_LIMIT=false
+```
 
 ### Custom Prompts
 

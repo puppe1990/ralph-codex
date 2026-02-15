@@ -26,6 +26,10 @@ MAX_CALLS_PER_HOUR=100
 # Timeout for each Codex CLI invocation (in minutes)
 CODEX_TIMEOUT_MINUTES=15
 
+# Auto-wait behavior when provider 5-hour limit is reached
+CODEX_AUTO_WAIT_ON_API_LIMIT=true
+CODEX_API_LIMIT_WAIT_MINUTES=60
+
 # Deprecated compatibility option (no-op in Codex mode)
 CODEX_OUTPUT_FORMAT="json"
 

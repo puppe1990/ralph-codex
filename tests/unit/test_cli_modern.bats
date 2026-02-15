@@ -640,6 +640,16 @@ EOF
     [[ "$output" == *'"loop_count": $loop_count'* ]]
 }
 
+@test "API limit path uses automatic wait-and-retry by default" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n "CODEX_AUTO_WAIT_ON_API_LIMIT\\|CODEX_API_LIMIT_WAIT_MINUTES\\|wait_for_api_limit_retry" "$script"
+    assert_success
+    [[ "$output" == *"CODEX_AUTO_WAIT_ON_API_LIMIT"* ]]
+    [[ "$output" == *"CODEX_API_LIMIT_WAIT_MINUTES"* ]]
+    [[ "$output" == *"wait_for_api_limit_retry"* ]]
+}
+
 # =============================================================================
 # BUILD_CODEX_COMMAND TESTS (TDD)
 # Tests for the fix of --prompt-file -> -p flag

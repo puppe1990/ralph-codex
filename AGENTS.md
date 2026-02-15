@@ -37,6 +37,8 @@ Important keys:
 
 - `CODEX_CODE_CMD` (default: `codex`)
 - `CODEX_TIMEOUT_MINUTES` (default: `15`)
+- `CODEX_AUTO_WAIT_ON_API_LIMIT` (default: `true`)
+- `CODEX_API_LIMIT_WAIT_MINUTES` (default: `60`)
 - `CODEX_USE_CONTINUE` (default: `true`)
 - `CODEX_SESSION_EXPIRY_HOURS` (default: `24`)
 - `CODEX_MIN_VERSION` (default: `0.80.0`)
@@ -54,6 +56,7 @@ Compatibility no-op keys (kept only for older configs):
 - Session continuity prefers `.ralph/.codex_session_id` and falls back to native `exec resume --last` when available.
 - Monitor mode should auto-close its tmux session when the main loop pane exits.
 - Circuit breaker opens on stagnation/repeated errors/permission-denial patterns.
+- API usage-limit pauses should auto-wait and retry by default (no interactive prompt).
 - Permission failures should guide users to sandbox/approval configuration first.
 - Real implementation progress is scoped to changes under `src/` or `tests/`; `.ralph/*` docs-only edits should not count as code progress.
 - Enable/setup/bootstrap commands must update project `.gitignore` to hide Ralph runtime artifacts (logs, session/counter state, status/progress JSON files).

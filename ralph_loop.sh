@@ -42,6 +42,11 @@ CODEX_EPHEMERAL="${CODEX_EPHEMERAL:-false}"
 CODEX_FULL_AUTO="${CODEX_FULL_AUTO:-false}"
 CODEX_DANGEROUS_BYPASS="${CODEX_DANGEROUS_BYPASS:-false}"
 CODEX_OUTPUT_SCHEMA_FILE="${CODEX_OUTPUT_SCHEMA_FILE:-$RALPH_DIR/output_schema.json}"
+CODEX_STATUS_SNAPSHOT_FILE="$RALPH_DIR/codex_status_snapshot.txt"
+CODEX_STATUS_LAST_REFRESH_FILE="$RALPH_DIR/.codex_status_last_refresh_epoch"
+CODEX_STATUS_REFRESH_INTERVAL_SECONDS="${CODEX_STATUS_REFRESH_INTERVAL_SECONDS:-300}"
+CODEX_AUTO_WAIT_ON_API_LIMIT="${CODEX_AUTO_WAIT_ON_API_LIMIT:-true}"
+CODEX_API_LIMIT_WAIT_MINUTES="${CODEX_API_LIMIT_WAIT_MINUTES:-60}"
 
 # Runtime capability detection (populated by detect_codex_structured_output_capabilities)
 CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE=false
@@ -68,6 +73,9 @@ _env_CODEX_EPHEMERAL="${CODEX_EPHEMERAL:-}"
 _env_CODEX_FULL_AUTO="${CODEX_FULL_AUTO:-}"
 _env_CODEX_DANGEROUS_BYPASS="${CODEX_DANGEROUS_BYPASS:-}"
 _env_CODEX_OUTPUT_SCHEMA_FILE="${CODEX_OUTPUT_SCHEMA_FILE:-}"
+_env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS="${CODEX_STATUS_REFRESH_INTERVAL_SECONDS:-}"
+_env_CODEX_AUTO_WAIT_ON_API_LIMIT="${CODEX_AUTO_WAIT_ON_API_LIMIT:-}"
+_env_CODEX_API_LIMIT_WAIT_MINUTES="${CODEX_API_LIMIT_WAIT_MINUTES:-}"
 _env_VERBOSE_PROGRESS="${VERBOSE_PROGRESS:-}"
 _env_CB_COOLDOWN_MINUTES="${CB_COOLDOWN_MINUTES:-}"
 _env_CB_AUTO_RESET="${CB_AUTO_RESET:-}"
@@ -141,6 +149,7 @@ TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, 
 WARNED_SKIP_RUNTIME_FLAGS=false
 WARNED_SKIP_OUTPUT_LAST_MESSAGE=false
 WARNED_SKIP_OUTPUT_SCHEMA=false
+WARNED_CODEX_STATUS_UNAVAILABLE=false
 
 # .ralphrc configuration file
 RALPHRC_FILE=".ralphrc"
@@ -167,6 +176,9 @@ RALPHRC_LOADED=false
 #   - CODEX_FULL_AUTO
 #   - CODEX_DANGEROUS_BYPASS
 #   - CODEX_OUTPUT_SCHEMA_FILE
+#   - CODEX_STATUS_REFRESH_INTERVAL_SECONDS
+#   - CODEX_AUTO_WAIT_ON_API_LIMIT
+#   - CODEX_API_LIMIT_WAIT_MINUTES
 #   - CB_NO_PROGRESS_THRESHOLD
 #   - CB_SAME_ERROR_THRESHOLD
 #   - CB_OUTPUT_DECLINE_THRESHOLD
@@ -235,6 +247,9 @@ load_ralphrc() {
     [[ -n "$_env_CODEX_FULL_AUTO" ]] && CODEX_FULL_AUTO="$_env_CODEX_FULL_AUTO"
     [[ -n "$_env_CODEX_DANGEROUS_BYPASS" ]] && CODEX_DANGEROUS_BYPASS="$_env_CODEX_DANGEROUS_BYPASS"
     [[ -n "$_env_CODEX_OUTPUT_SCHEMA_FILE" ]] && CODEX_OUTPUT_SCHEMA_FILE="$_env_CODEX_OUTPUT_SCHEMA_FILE"
+    [[ -n "$_env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS" ]] && CODEX_STATUS_REFRESH_INTERVAL_SECONDS="$_env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS"
+    [[ -n "$_env_CODEX_AUTO_WAIT_ON_API_LIMIT" ]] && CODEX_AUTO_WAIT_ON_API_LIMIT="$_env_CODEX_AUTO_WAIT_ON_API_LIMIT"
+    [[ -n "$_env_CODEX_API_LIMIT_WAIT_MINUTES" ]] && CODEX_API_LIMIT_WAIT_MINUTES="$_env_CODEX_API_LIMIT_WAIT_MINUTES"
     [[ -n "$_env_VERBOSE_PROGRESS" ]] && VERBOSE_PROGRESS="$_env_VERBOSE_PROGRESS"
     [[ -n "$_env_CB_COOLDOWN_MINUTES" ]] && CB_COOLDOWN_MINUTES="$_env_CB_COOLDOWN_MINUTES"
     [[ -n "$_env_CB_AUTO_RESET" ]] && CB_AUTO_RESET="$_env_CB_AUTO_RESET"
@@ -663,6 +678,149 @@ format_elapsed_hms() {
     printf '%02d:%02d:%02d' "$hours" "$minutes" "$seconds"
 }
 
+get_file_mtime_epoch() {
+    local file=$1
+    local mtime=""
+    if mtime=$(stat -c %Y "$file" 2>/dev/null) && [[ "$mtime" =~ ^[0-9]+$ ]]; then
+        echo "$mtime"
+        return 0
+    fi
+    if mtime=$(stat -f %m "$file" 2>/dev/null) && [[ "$mtime" =~ ^[0-9]+$ ]]; then
+        echo "$mtime"
+        return 0
+    fi
+    if mtime=$(date -r "$file" +%s 2>/dev/null) && [[ "$mtime" =~ ^[0-9]+$ ]]; then
+        echo "$mtime"
+        return 0
+    fi
+    echo "0"
+}
+
+list_codex_rollout_files_by_mtime_desc() {
+    local sessions_dir="${CODEX_HOME:-$HOME/.codex}"
+    local session_path="$sessions_dir/sessions"
+    local archived_path="$sessions_dir/archived_sessions"
+    local candidate_dirs=()
+
+    [[ -d "$session_path" ]] && candidate_dirs+=("$session_path")
+    [[ -d "$archived_path" ]] && candidate_dirs+=("$archived_path")
+    if [[ ${#candidate_dirs[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    local file mtime
+    while IFS= read -r file; do
+        [[ -z "$file" ]] && continue
+        mtime=$(get_file_mtime_epoch "$file")
+        echo "$mtime|$file"
+    done < <(find "${candidate_dirs[@]}" -type f -name 'rollout-*.jsonl' 2>/dev/null) | sort -t'|' -nr -k1,1 | cut -d'|' -f2-
+}
+
+is_valid_numeric() {
+    local value=$1
+    [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]]
+}
+
+percent_remaining_from_used() {
+    local used_percent=$1
+    if ! is_valid_numeric "$used_percent"; then
+        echo ""
+        return 0
+    fi
+    awk -v used="$used_percent" 'BEGIN {rem=100-used; if (rem < 0) rem=0; if (rem > 100) rem=100; printf "%.0f", rem}'
+}
+
+refresh_codex_status_snapshot() {
+    if ! command -v jq >/dev/null 2>&1; then
+        return 1
+    fi
+
+    local rate_limits_json=""
+    local rollout_file=""
+
+    while IFS= read -r rollout_file; do
+        [[ -z "$rollout_file" ]] && continue
+        rate_limits_json=$(jq -c 'select(.type=="event_msg" and .payload.type=="token_count" and (.payload.rate_limits|type=="object")) | .payload.rate_limits' "$rollout_file" 2>/dev/null | tail -1)
+        if [[ -n "$rate_limits_json" ]]; then
+            break
+        fi
+    done < <(list_codex_rollout_files_by_mtime_desc)
+
+    if [[ -z "$rate_limits_json" ]]; then
+        return 1
+    fi
+
+    local primary_used secondary_used primary_remaining secondary_remaining primary_reset secondary_reset primary_window secondary_window
+    primary_used=$(echo "$rate_limits_json" | jq -r '.primary.used_percent // empty' 2>/dev/null || true)
+    secondary_used=$(echo "$rate_limits_json" | jq -r '.secondary.used_percent // empty' 2>/dev/null || true)
+    primary_reset=$(echo "$rate_limits_json" | jq -r '.primary.resets_at // ""' 2>/dev/null || true)
+    secondary_reset=$(echo "$rate_limits_json" | jq -r '.secondary.resets_at // ""' 2>/dev/null || true)
+    primary_window=$(echo "$rate_limits_json" | jq -r '.primary.window_minutes // ""' 2>/dev/null || true)
+    secondary_window=$(echo "$rate_limits_json" | jq -r '.secondary.window_minutes // ""' 2>/dev/null || true)
+
+    primary_remaining=$(percent_remaining_from_used "$primary_used")
+    secondary_remaining=$(percent_remaining_from_used "$secondary_used")
+
+    mkdir -p "$RALPH_DIR"
+    cat > "$CODEX_STATUS_SNAPSHOT_FILE" << EOF
+# codex_status_snapshot
+generated_at=$(get_iso_timestamp)
+source=codex_local_sessions
+5h_window_minutes=${primary_window}
+5h_used_percent=${primary_used}
+5h_remaining_percent=${primary_remaining}
+5h_resets_at=${primary_reset}
+weekly_window_minutes=${secondary_window}
+weekly_used_percent=${secondary_used}
+weekly_remaining_percent=${secondary_remaining}
+weekly_resets_at=${secondary_reset}
+5h_human=${primary_remaining}% remaining (resets ${primary_reset})
+weekly_human=${secondary_remaining}% remaining (resets ${secondary_reset})
+EOF
+
+    return 0
+}
+
+refresh_codex_status_snapshot_if_due() {
+    local force=${1:-false}
+
+    if ! [[ "$CODEX_STATUS_REFRESH_INTERVAL_SECONDS" =~ ^[0-9]+$ ]]; then
+        CODEX_STATUS_REFRESH_INTERVAL_SECONDS=300
+    fi
+    if [[ "$CODEX_STATUS_REFRESH_INTERVAL_SECONDS" -le 0 ]]; then
+        return 0
+    fi
+
+    local now_epoch last_refresh=0
+    now_epoch=$(get_now_epoch)
+    if [[ -f "$CODEX_STATUS_LAST_REFRESH_FILE" ]]; then
+        last_refresh=$(cat "$CODEX_STATUS_LAST_REFRESH_FILE" 2>/dev/null || echo "0")
+        [[ "$last_refresh" =~ ^[0-9]+$ ]] || last_refresh=0
+    fi
+
+    if [[ "$force" != "true" ]] && [[ "$last_refresh" -gt 0 ]]; then
+        local elapsed=$((now_epoch - last_refresh))
+        if [[ "$elapsed" -lt "$CODEX_STATUS_REFRESH_INTERVAL_SECONDS" ]]; then
+            return 0
+        fi
+    fi
+
+    if refresh_codex_status_snapshot; then
+        echo "$now_epoch" > "$CODEX_STATUS_LAST_REFRESH_FILE"
+        WARNED_CODEX_STATUS_UNAVAILABLE=false
+        if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+            log_status "INFO" "Codex quota snapshot updated: $CODEX_STATUS_SNAPSHOT_FILE"
+        fi
+        return 0
+    fi
+
+    if [[ "$WARNED_CODEX_STATUS_UNAVAILABLE" != "true" ]] && [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "WARN" "Could not update Codex quota snapshot from local sessions."
+        WARNED_CODEX_STATUS_UNAVAILABLE=true
+    fi
+    return 1
+}
+
 # Update status JSON for external monitoring
 update_status() {
     local loop_count=$1
@@ -688,6 +846,12 @@ update_status() {
     local loop_elapsed_human
     loop_elapsed_human=$(format_elapsed_hms "$loop_elapsed_seconds")
     
+    local codex_quota_last_refresh_epoch=0
+    if [[ -f "$CODEX_STATUS_LAST_REFRESH_FILE" ]]; then
+        codex_quota_last_refresh_epoch=$(cat "$CODEX_STATUS_LAST_REFRESH_FILE" 2>/dev/null || echo "0")
+        [[ "$codex_quota_last_refresh_epoch" =~ ^[0-9]+$ ]] || codex_quota_last_refresh_epoch=0
+    fi
+
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(get_iso_timestamp)",
@@ -705,6 +869,9 @@ update_status() {
     "loop_started_epoch": $CURRENT_LOOP_START_EPOCH,
     "loop_elapsed_seconds": $loop_elapsed_seconds,
     "loop_elapsed_hms": "$loop_elapsed_human",
+    "codex_quota_snapshot_file": "$CODEX_STATUS_SNAPSHOT_FILE",
+    "codex_quota_refresh_interval_seconds": $CODEX_STATUS_REFRESH_INTERVAL_SECONDS,
+    "codex_quota_last_refresh_epoch": $codex_quota_last_refresh_epoch,
     "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
@@ -755,6 +922,9 @@ wait_for_reset() {
         local seconds=$((wait_time % 60))
         
         printf "\r${YELLOW}Time until reset: %02d:%02d:%02d${NC}" $hours $minutes $seconds
+        if (( wait_time % 30 == 0 )); then
+            refresh_codex_status_snapshot_if_due || true
+        fi
         sleep 1
         ((wait_time--))
     done
@@ -764,6 +934,28 @@ wait_for_reset() {
     echo "0" > "$CALL_COUNT_FILE"
     echo "$(date +%Y%m%d%H)" > "$TIMESTAMP_FILE"
     log_status "SUCCESS" "Rate limit reset! Ready for new calls."
+}
+
+wait_for_api_limit_retry() {
+    local wait_minutes=${1:-60}
+    if ! [[ "$wait_minutes" =~ ^[0-9]+$ ]] || [[ "$wait_minutes" -le 0 ]]; then
+        wait_minutes=60
+    fi
+
+    local wait_seconds=$((wait_minutes * 60))
+    log_status "WARN" "API usage limit reached. Auto-wait enabled, retrying in ${wait_minutes} minute(s)."
+
+    while [[ $wait_seconds -gt 0 ]]; do
+        local minutes=$((wait_seconds / 60))
+        local seconds=$((wait_seconds % 60))
+        printf "\r${YELLOW}Time until retry: %02d:%02d${NC}" "$minutes" "$seconds"
+        if (( wait_seconds % 30 == 0 )); then
+            refresh_codex_status_snapshot_if_due || true
+        fi
+        sleep 1
+        ((wait_seconds--))
+    done
+    printf "\n"
 }
 
 # Check if we should gracefully exit
@@ -1654,6 +1846,7 @@ EOF
         fi
 
         sleep 10
+        refresh_codex_status_snapshot_if_due || true
     done
 
     # Wait for the process to finish and get exit code.
@@ -1839,6 +2032,7 @@ main() {
     check_codex_version || true
     detect_codex_structured_output_capabilities
     detect_codex_resume_capabilities
+    refresh_codex_status_snapshot_if_due true || true
 
     # Check if project uses old flat structure and needs migration
     if [[ -f "PROMPT.md" ]] && [[ ! -d ".ralph" ]]; then
@@ -1896,6 +2090,7 @@ main() {
 
         # Update session last_used timestamp
         update_session_last_used
+        refresh_codex_status_snapshot_if_due || true
 
         log_status "INFO" "Loop #$loop_count - calling init_call_tracking..."
         init_call_tracking
@@ -1981,38 +2176,13 @@ main() {
             # API 5-hour limit reached - handle specially
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
             log_status "WARN" "🛑 API usage limit reached!"
-            
-            # Ask user whether to wait or exit
-            echo -e "\n${YELLOW}A provider usage limit was reached.${NC}"
-            echo -e "${YELLOW}You can either:${NC}"
-            echo -e "  ${GREEN}1)${NC} Wait for the limit to reset (usually within an hour)"
-            echo -e "  ${GREEN}2)${NC} Exit the loop and try again later"
-            echo -e "\n${BLUE}Choose an option (1 or 2):${NC} "
-            
-            # Read user input with timeout
-            read -t 30 -n 1 user_choice
-            echo  # New line after input
-            
-            if [[ "$user_choice" == "2" ]] || [[ -z "$user_choice" ]]; then
-                log_status "INFO" "User chose to exit (or timed out). Exiting loop..."
+
+            if [[ "$CODEX_AUTO_WAIT_ON_API_LIMIT" == "true" ]]; then
+                wait_for_api_limit_retry "$CODEX_API_LIMIT_WAIT_MINUTES"
+            else
+                log_status "INFO" "Auto-wait on API limit is disabled. Exiting loop."
                 update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
                 break
-            else
-                log_status "INFO" "User chose to wait. Waiting for API limit reset..."
-                # Wait for longer period when API limit is hit
-                local wait_minutes=60
-                log_status "INFO" "Waiting $wait_minutes minutes before retrying..."
-                
-                # Countdown display
-                local wait_seconds=$((wait_minutes * 60))
-                while [[ $wait_seconds -gt 0 ]]; do
-                    local minutes=$((wait_seconds / 60))
-                    local seconds=$((wait_seconds % 60))
-                    printf "\r${YELLOW}Time until retry: %02d:%02d${NC}" $minutes $seconds
-                    sleep 1
-                    ((wait_seconds--))
-                done
-                printf "\n"
             fi
         elif [ $exec_result -eq 4 ]; then
             # Timeout reached - keep loop alive with explicit status
