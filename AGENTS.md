@@ -39,6 +39,7 @@ Important keys:
 - `CODEX_TIMEOUT_MINUTES` (default: `15`)
 - `CODEX_AUTO_WAIT_ON_API_LIMIT` (default: `true`)
 - `CODEX_API_LIMIT_WAIT_MINUTES` (default: `60`)
+- `RALPH_AUTO_RECOVER_ORPHANED_STATUS` (default: `true`)
 - `CODEX_LOG_PROGRESS` (default: `true`)
 - `CODEX_PROGRESS_LOG_INTERVAL_SECONDS` (default: `30`)
 - `DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS` (default: `20`)

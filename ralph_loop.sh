@@ -51,6 +51,7 @@ CODEX_STATUS_REFRESH_INTERVAL_SECONDS="${CODEX_STATUS_REFRESH_INTERVAL_SECONDS:-
 CODEX_AUTO_WAIT_ON_API_LIMIT="${CODEX_AUTO_WAIT_ON_API_LIMIT:-true}"
 CODEX_API_LIMIT_WAIT_MINUTES="${CODEX_API_LIMIT_WAIT_MINUTES:-60}"
 RALPH_ORPHAN_STATUS_THRESHOLD_SECONDS="${RALPH_ORPHAN_STATUS_THRESHOLD_SECONDS:-60}"
+RALPH_AUTO_RECOVER_ORPHANED_STATUS="${RALPH_AUTO_RECOVER_ORPHANED_STATUS:-true}"
 CODEX_LOG_PROGRESS="${CODEX_LOG_PROGRESS:-true}"
 CODEX_PROGRESS_LOG_INTERVAL_SECONDS="${CODEX_PROGRESS_LOG_INTERVAL_SECONDS:-30}"
 DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS="${DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS:-20}"
@@ -83,6 +84,7 @@ _env_CODEX_OUTPUT_SCHEMA_FILE="${CODEX_OUTPUT_SCHEMA_FILE:-}"
 _env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS="${CODEX_STATUS_REFRESH_INTERVAL_SECONDS:-}"
 _env_CODEX_AUTO_WAIT_ON_API_LIMIT="${CODEX_AUTO_WAIT_ON_API_LIMIT:-}"
 _env_CODEX_API_LIMIT_WAIT_MINUTES="${CODEX_API_LIMIT_WAIT_MINUTES:-}"
+_env_RALPH_AUTO_RECOVER_ORPHANED_STATUS="${RALPH_AUTO_RECOVER_ORPHANED_STATUS:-}"
 _env_CODEX_LOG_PROGRESS="${CODEX_LOG_PROGRESS:-}"
 _env_CODEX_PROGRESS_LOG_INTERVAL_SECONDS="${CODEX_PROGRESS_LOG_INTERVAL_SECONDS:-}"
 _env_DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS="${DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS:-}"
@@ -260,6 +262,7 @@ load_ralphrc() {
     [[ -n "$_env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS" ]] && CODEX_STATUS_REFRESH_INTERVAL_SECONDS="$_env_CODEX_STATUS_REFRESH_INTERVAL_SECONDS"
     [[ -n "$_env_CODEX_AUTO_WAIT_ON_API_LIMIT" ]] && CODEX_AUTO_WAIT_ON_API_LIMIT="$_env_CODEX_AUTO_WAIT_ON_API_LIMIT"
     [[ -n "$_env_CODEX_API_LIMIT_WAIT_MINUTES" ]] && CODEX_API_LIMIT_WAIT_MINUTES="$_env_CODEX_API_LIMIT_WAIT_MINUTES"
+    [[ -n "$_env_RALPH_AUTO_RECOVER_ORPHANED_STATUS" ]] && RALPH_AUTO_RECOVER_ORPHANED_STATUS="$_env_RALPH_AUTO_RECOVER_ORPHANED_STATUS"
     [[ -n "$_env_CODEX_LOG_PROGRESS" ]] && CODEX_LOG_PROGRESS="$_env_CODEX_LOG_PROGRESS"
     [[ -n "$_env_CODEX_PROGRESS_LOG_INTERVAL_SECONDS" ]] && CODEX_PROGRESS_LOG_INTERVAL_SECONDS="$_env_CODEX_PROGRESS_LOG_INTERVAL_SECONDS"
     [[ -n "$_env_DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS" ]] && DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS="$_env_DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS"
@@ -2175,7 +2178,7 @@ append_codex_stderr_diagnostics() {
         return 0
     fi
 
-    local known_pattern='state db missing rollout path|state db record_discrepancy'
+    local known_pattern='state db missing rollout path|state db record_discrepancy|Falling back on rollout system'
     local known_count=0
     local unknown_lines=""
 
@@ -2335,6 +2338,10 @@ execute_codex_code() {
     "timestamp": "$(date '+%Y-%m-%d %H:%M:%S')"
 }
 EOF
+
+        # Heartbeat runtime status while Codex is executing so monitors don't treat
+        # long-running calls as stale/offline.
+        update_status "$loop_count" "$calls_made" "executing" "running"
 
         # Only log if verbose mode is enabled
         if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
@@ -2598,6 +2605,10 @@ reconcile_stale_running_status() {
     if [[ -n "$updated" ]]; then
         echo "$updated" > "$STATUS_FILE"
         log_status "WARN" "Detected stale running status with no active process; marked as stopped_unexpected."
+        if [[ "$RALPH_AUTO_RECOVER_ORPHANED_STATUS" == "true" ]]; then
+            reset_session "orphan_runtime_recovered"
+            log_status "INFO" "Auto-recovered orphaned runtime state; starting a fresh session."
+        fi
     fi
 }
 

@@ -248,6 +248,7 @@ Minimum required fields include:
 - API limit pause telemetry (`api_limit_paused`, `api_limit_wait_*`)
 - canonical quota payload (`codex_quota_effective`) used by UI/diagnostics
 - stale-runtime reconciliation (`status=stopped_unexpected` + `exit_reason=process_missing` when prior running state is orphaned)
+- startup orphan recovery support (`RALPH_AUTO_RECOVER_ORPHANED_STATUS`) should keep stale runtime/session state from poisoning new runs
 - consolidated diagnostics artifacts (`.ralph/diagnostics_latest.md` + `.ralph/diagnostics_latest.json`) kept current for troubleshooting/export
 
 Session continuity changes must preserve the default resume preference order:

@@ -412,6 +412,7 @@ MAX_CALLS_PER_HOUR=100
 CODEX_TIMEOUT_MINUTES=15
 CODEX_AUTO_WAIT_ON_API_LIMIT=true
 CODEX_API_LIMIT_WAIT_MINUTES=60
+RALPH_AUTO_RECOVER_ORPHANED_STATUS=true
 CODEX_LOG_PROGRESS=true
 CODEX_PROGRESS_LOG_INTERVAL_SECONDS=30
 DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS=20
@@ -433,6 +434,7 @@ CB_SAME_ERROR_THRESHOLD=5
 Progress logging notes:
 - `CODEX_LOG_PROGRESS=true` writes Codex activity updates to `.ralph/logs/ralph.log` even without `--verbose`.
 - `CODEX_PROGRESS_LOG_INTERVAL_SECONDS` controls heartbeat frequency when there is no new event text.
+- `RALPH_AUTO_RECOVER_ORPHANED_STATUS=true` automatically resets stale orphaned runtime/session state on startup.
 - Ralph writes consolidated diagnostics to `.ralph/diagnostics_latest.md` and `.ralph/diagnostics_latest.json`.
 - `DIAGNOSTIC_REPORT_MIN_INTERVAL_SECONDS` throttles diagnostics regeneration during rapid status updates.
 

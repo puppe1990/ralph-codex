@@ -1083,6 +1083,14 @@ EOF
     run bash -c "sed -n '/append_codex_stderr_diagnostics()/,/^}/p' '$script'"
     assert_success
     [[ "$output" == *'Suppressed $known_count known Codex state-db rollout warning(s).'* ]]
+    [[ "$output" == *'Falling back on rollout system'* ]]
     [[ "$output" == *'state db missing rollout path'* ]]
     [[ "$output" == *'state db record_discrepancy'* ]]
+}
+
+@test "execute_codex_code updates status heartbeat while Codex runs" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -n 'update_status "\$loop_count" "\$calls_made" "executing" "running"' "$script"
+    assert_success
+    [[ "$output" == *'update_status "$loop_count" "$calls_made" "executing" "running"'* ]]
 }
