@@ -559,6 +559,48 @@ format_codex_progress_from_event() {
     fi
 }
 
+# Collect unique changed files for the current loop.
+# Includes committed diff since loop start, staged/unstaged, and untracked files.
+collect_changed_files_since_loop_start() {
+    local loop_start_sha=""
+    local current_sha=""
+
+    if ! command -v git &>/dev/null || ! git rev-parse --git-dir &>/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
+        loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
+    fi
+    current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+    if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+        {
+            git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
+            git diff --name-only HEAD 2>/dev/null
+            git diff --name-only --cached 2>/dev/null
+            git ls-files --others --exclude-standard 2>/dev/null
+        } | sed '/^[[:space:]]*$/d' | sort -u
+    else
+        {
+            git diff --name-only 2>/dev/null
+            git diff --name-only --cached 2>/dev/null
+            git ls-files --others --exclude-standard 2>/dev/null
+        } | sed '/^[[:space:]]*$/d' | sort -u
+    fi
+}
+
+count_total_changed_files() {
+    local changed_files=$1
+    printf '%s\n' "$changed_files" | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]'
+}
+
+# "Real code progress" counts only source/test changes.
+count_scoped_code_changed_files() {
+    local changed_files=$1
+    printf '%s\n' "$changed_files" | sed '/^[[:space:]]*$/d' | grep -E '^(src|tests)/' | wc -l | tr -d '[:space:]'
+}
+
 # Update status JSON for external monitoring
 update_status() {
     local loop_count=$1
@@ -1504,47 +1546,48 @@ EOF
         analyze_response "$analysis_input_file" "$loop_count"
         local analysis_exit_code=$?
 
-        # Update exit signals based on analysis
-        update_exit_signals
-
-        # Log analysis summary
-        log_analysis_summary
-
-        # Get file change count for circuit breaker
-        # Fix #141: Detect both uncommitted changes AND committed changes
+        # Compute real progress: only src/ or tests/ count as implementation movement.
+        local changed_files=""
+        changed_files=$(collect_changed_files_since_loop_start)
+        local files_changed_total=0
         local files_changed=0
-        local loop_start_sha=""
-        local current_sha=""
+        files_changed_total=$(count_total_changed_files "$changed_files")
+        files_changed=$(count_scoped_code_changed_files "$changed_files")
 
-        if [[ -f "$RALPH_DIR/.loop_start_sha" ]]; then
-            loop_start_sha=$(cat "$RALPH_DIR/.loop_start_sha" 2>/dev/null || echo "")
-        fi
+        # Override analysis progress fields with scope-aware values.
+        # This prevents docs-only loops (.ralph/*) from being counted as implementation progress.
+        if [[ -f "$RALPH_DIR/.response_analysis" ]]; then
+            local scoped_has_progress="false"
+            if [[ "$files_changed" -gt 0 ]]; then
+                scoped_has_progress="true"
+            fi
 
-        if command -v git &>/dev/null && git rev-parse --git-dir &>/dev/null 2>&1; then
-            current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+            local adjusted_analysis=""
+            adjusted_analysis=$(jq \
+                --argjson scoped_files "$files_changed" \
+                --argjson total_files "$files_changed_total" \
+                --argjson scoped_progress "$scoped_has_progress" \
+                '.analysis.files_modified = $scoped_files
+                 | .analysis.total_files_modified = $total_files
+                 | .analysis.has_progress = $scoped_progress
+                 | .analysis.code_scope = "src|tests"' \
+                "$RALPH_DIR/.response_analysis" 2>/dev/null || true)
 
-            # Check if commits were made (HEAD changed)
-            if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
-                # Commits were made - count union of committed files AND working tree changes
-                # This catches cases where Codex CLI commits some files but still has other modified files
-                files_changed=$(
-                    {
-                        git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
-                        git diff --name-only HEAD 2>/dev/null           # unstaged changes
-                        git diff --name-only --cached 2>/dev/null       # staged changes
-                    } | sort -u | wc -l
-                )
-                [[ "$VERBOSE_PROGRESS" == "true" ]] && log_status "DEBUG" "Detected $files_changed unique files changed (commits + working tree) since loop start"
-            else
-                # No commits - check for uncommitted changes (staged + unstaged)
-                files_changed=$(
-                    {
-                        git diff --name-only 2>/dev/null                # unstaged changes
-                        git diff --name-only --cached 2>/dev/null       # staged changes
-                    } | sort -u | wc -l
-                )
+            if [[ -n "$adjusted_analysis" ]]; then
+                echo "$adjusted_analysis" > "$RALPH_DIR/.response_analysis"
             fi
         fi
+
+        if [[ "$files_changed_total" -gt 0 && "$files_changed" -eq 0 ]]; then
+            log_status "WARN" "No real code progress detected (changes were outside src/ or tests/)."
+            log_status "WARN" "Next loop must include at least one change in src/ or tests/."
+        elif [[ "$VERBOSE_PROGRESS" == "true" && "$files_changed" -gt 0 ]]; then
+            log_status "INFO" "Real code progress: $files_changed file(s) changed in src/ or tests/."
+        fi
+
+        # Update exit signals based on adjusted analysis, then log summary.
+        update_exit_signals
+        log_analysis_summary
 
         local has_errors="false"
 

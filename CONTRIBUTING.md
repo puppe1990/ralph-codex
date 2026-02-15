@@ -86,6 +86,11 @@ ralph-codex/
 
 ## Development Workflow
 
+### Ralph Runtime Rules
+
+- Runtime artifacts must stay out of git status. If you touch enable/setup/bootstrap flows, ensure `.gitignore` receives Ralph runtime ignore entries.
+- Loop progress should represent implementation movement. Prefer changes in `src/` or `tests/`; docs-only loops should not be treated as real code progress.
+
 ### Branch Naming Conventions
 
 Always create a feature branch - never work directly on `main`:

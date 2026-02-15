@@ -210,6 +210,64 @@ safe_create_dir() {
     fi
 }
 
+# ensure_ralph_gitignore_entries - Ensure runtime Ralph artifacts are ignored
+#
+# Keeps project roots clean by ignoring ephemeral runtime state while preserving
+# user-authored Ralph assets (.ralph/PROMPT.md, .ralph/fix_plan.md, specs, etc.).
+#
+# Returns:
+#   0 - .gitignore updated or already up to date
+#   1 - failed to update .gitignore
+#
+ensure_ralph_gitignore_entries() {
+    local gitignore_file=".gitignore"
+    local marker="# Ralph runtime artifacts"
+    local entries=(
+        ".ralph/logs/"
+        ".ralph/live.log"
+        ".ralph/status.json"
+        ".ralph/progress.json"
+        ".ralph/.call_count"
+        ".ralph/.last_reset"
+        ".ralph/.exit_signals"
+        ".ralph/.response_analysis"
+        ".ralph/.json_parse_result"
+        ".ralph/.loop_start_sha"
+        ".ralph/.last_output_length"
+        ".ralph/.circuit_breaker_state"
+        ".ralph/.circuit_breaker_history"
+        ".ralph/.codex_session_id"
+        ".ralph/.ralph_session"
+        ".ralph/.ralph_session_history"
+    )
+
+    if [[ ! -f "$gitignore_file" ]]; then
+        : > "$gitignore_file" || return 1
+    fi
+
+    # Add marker once to make auto-managed block discoverable.
+    if ! grep -qxF "$marker" "$gitignore_file"; then
+        printf '\n%s\n' "$marker" >> "$gitignore_file" || return 1
+    fi
+
+    local added=0
+    local entry=""
+    for entry in "${entries[@]}"; do
+        if ! grep -qxF "$entry" "$gitignore_file"; then
+            echo "$entry" >> "$gitignore_file" || return 1
+            added=$((added + 1))
+        fi
+    done
+
+    if [[ "$added" -gt 0 ]]; then
+        enable_log "SUCCESS" "Updated .gitignore with Ralph runtime ignore rules ($added entries added)"
+    else
+        enable_log "SKIP" ".gitignore already has Ralph runtime ignore rules"
+    fi
+
+    return 0
+}
+
 # =============================================================================
 # DIRECTORY STRUCTURE
 # =============================================================================
@@ -559,6 +617,10 @@ RECOMMENDATION: <one line summary of what to do next>
 
 ## Current Task
 Follow fix_plan.md and choose the most important item to implement next.
+
+## Execution Rule For This Project
+- Each loop must include at least one concrete code change in \`src/\` or \`tests/\`.
+- Avoid loops that only edit \`.ralph/*\` unless explicitly blocked by missing access.
 PROMPTEOF
 }
 
@@ -791,6 +853,11 @@ enable_ralph_in_directory() {
     ralphrc_content=$(generate_ralphrc "$project_name" "$DETECTED_PROJECT_TYPE" "$task_sources")
     safe_create_file ".ralphrc" "$ralphrc_content"
 
+    # Keep runtime artifacts out of git status by default.
+    ensure_ralph_gitignore_entries || {
+        enable_log "WARN" "Could not update .gitignore with Ralph runtime ignore rules"
+    }
+
     enable_log "SUCCESS" "Ralph enabled successfully!"
 
     return $ENABLE_SUCCESS
@@ -802,6 +869,7 @@ export -f check_existing_ralph
 export -f is_ralph_enabled
 export -f safe_create_file
 export -f safe_create_dir
+export -f ensure_ralph_gitignore_entries
 export -f create_ralph_structure
 export -f detect_project_context
 export -f detect_git_info

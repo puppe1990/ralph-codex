@@ -543,3 +543,15 @@ teardown() {
     # .ralphrc should reference the project name
     grep -q "my-custom-project" my-custom-project/.ralphrc
 }
+
+@test "setup.sh updates .gitignore with Ralph runtime rules" {
+    run bash "$SETUP_SCRIPT" test-project
+
+    assert_success
+    assert_file_exists "test-project/.gitignore"
+
+    run grep -E '^.ralph/logs/$' "test-project/.gitignore"
+    assert_success
+    run grep -E '^.ralph/status.json$' "test-project/.gitignore"
+    assert_success
+}

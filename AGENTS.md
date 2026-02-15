@@ -54,6 +54,8 @@ Compatibility no-op keys (kept only for older configs):
 - Session continuity prefers `.ralph/.codex_session_id` and falls back to native `exec resume --last` when available.
 - Circuit breaker opens on stagnation/repeated errors/permission-denial patterns.
 - Permission failures should guide users to sandbox/approval configuration first.
+- Real implementation progress is scoped to changes under `src/` or `tests/`; `.ralph/*` docs-only edits should not count as code progress.
+- Enable/setup/bootstrap commands must update project `.gitignore` to hide Ralph runtime artifacts (logs, session/counter state, status/progress JSON files).
 
 ## Development Commands
 

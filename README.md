@@ -33,6 +33,8 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 - **Interactive project enablement with `ralph-enable` wizard**
 - **`.ralphrc` configuration file for project settings**
 - **Structured event analysis from Codex JSONL output**
+- **Scoped progress gate**: loops only count implementation progress when files under `src/` or `tests/` change
+- **Automatic `.gitignore` runtime hygiene** when using `ralph-enable`, `ralph-enable-ci`, `ralph-setup`, or `create_files.sh`
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
 - tmux integration for live monitoring
@@ -197,6 +199,8 @@ ralph-enable --from prd ./docs/requirements.md
 # Start autonomous development
 ralph --monitor
 ```
+
+`ralph-enable` also updates your project's `.gitignore` to hide ephemeral Ralph runtime files (`.ralph/logs/`, `.ralph/status.json`, session/counter state files, etc.).
 
 #### Option B: Import Existing PRD/Specifications
 ```bash

@@ -578,6 +578,25 @@ EOF
     [[ "$output" == *'last_line=$(format_codex_progress_from_event "$jsonl_file")'* ]]
 }
 
+@test "ralph loop defines scoped progress helpers for src/tests" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n "collect_changed_files_since_loop_start\\|count_scoped_code_changed_files\\|src|tests" "$script"
+    assert_success
+    [[ "$output" == *"collect_changed_files_since_loop_start"* ]]
+    [[ "$output" == *"count_scoped_code_changed_files"* ]]
+    [[ "$output" == *"src|tests"* ]]
+}
+
+@test "execute_codex_code warns when loop changes are outside src/tests" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n "No real code progress detected\\|Next loop must include at least one change in src/ or tests/" "$script"
+    assert_success
+    [[ "$output" == *"No real code progress detected"* ]]
+    [[ "$output" == *"Next loop must include at least one change in src/ or tests/"* ]]
+}
+
 # =============================================================================
 # BUILD_CODEX_COMMAND TESTS (TDD)
 # Tests for the fix of --prompt-file -> -p flag

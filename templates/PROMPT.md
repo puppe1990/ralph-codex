@@ -282,4 +282,8 @@ RECOMMENDATION: Blocked on [specific dependency] - need [what's needed]
 Follow .ralph/fix_plan.md and choose the most important item to implement next.
 Use your judgment to prioritize what will have the biggest impact on project progress.
 
+## Execution Rule For This Project
+- Each loop must include at least one concrete code change in `src/` or `tests/`.
+- Avoid loops that only edit `.ralph/*` unless the loop is explicitly blocked by missing environment access.
+
 Remember: Quality over speed. Build it right the first time. Know when you're done.

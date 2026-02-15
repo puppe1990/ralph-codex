@@ -51,6 +51,37 @@ fi
 
 mkdir -p "$RALPH_DIR/specs" "$RALPH_DIR/logs" "$RALPH_DIR/docs/generated"
 
+ensure_ralph_gitignore_entries() {
+    local gitignore_file=".gitignore"
+    local marker="# Ralph runtime artifacts"
+    local entries=(
+        ".ralph/logs/"
+        ".ralph/live.log"
+        ".ralph/status.json"
+        ".ralph/progress.json"
+        ".ralph/.call_count"
+        ".ralph/.last_reset"
+        ".ralph/.exit_signals"
+        ".ralph/.response_analysis"
+        ".ralph/.json_parse_result"
+        ".ralph/.loop_start_sha"
+        ".ralph/.last_output_length"
+        ".ralph/.circuit_breaker_state"
+        ".ralph/.circuit_breaker_history"
+        ".ralph/.codex_session_id"
+        ".ralph/.ralph_session"
+        ".ralph/.ralph_session_history"
+    )
+
+    [[ -f "$gitignore_file" ]] || : > "$gitignore_file"
+    grep -qxF "$marker" "$gitignore_file" || printf '\n%s\n' "$marker" >> "$gitignore_file"
+
+    local entry=""
+    for entry in "${entries[@]}"; do
+        grep -qxF "$entry" "$gitignore_file" || echo "$entry" >> "$gitignore_file"
+    done
+}
+
 copy_template_file() {
     local src="$1"
     local dest="$2"
@@ -76,6 +107,9 @@ if [[ -d "$TEMPLATES_DIR/specs" ]]; then
     cp -R "$TEMPLATES_DIR/specs/." "$RALPH_DIR/specs/"
     echo "ok:   $RALPH_DIR/specs/"
 fi
+
+ensure_ralph_gitignore_entries
+echo "ok:   .gitignore (Ralph runtime rules)"
 
 echo
 echo "Ralph files are ready in '$RALPH_DIR'."

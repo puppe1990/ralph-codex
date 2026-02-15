@@ -121,6 +121,30 @@ teardown() {
 }
 
 # =============================================================================
+# .GITIGNORE RUNTIME RULES (2 tests)
+# =============================================================================
+
+@test "ensure_ralph_gitignore_entries creates .gitignore with Ralph runtime rules" {
+    run ensure_ralph_gitignore_entries
+
+    assert_success
+    [[ -f ".gitignore" ]]
+    [[ "$(cat .gitignore)" == *".ralph/logs/"* ]]
+    [[ "$(cat .gitignore)" == *".ralph/status.json"* ]]
+    [[ "$(cat .gitignore)" == *".ralph/.response_analysis"* ]]
+}
+
+@test "ensure_ralph_gitignore_entries is idempotent and avoids duplicate lines" {
+    ensure_ralph_gitignore_entries
+    run ensure_ralph_gitignore_entries
+
+    assert_success
+    local count
+    count=$(grep -c '^.ralph/logs/$' .gitignore)
+    assert_equal "$count" "1"
+}
+
+# =============================================================================
 # DIRECTORY STRUCTURE (2 tests)
 # =============================================================================
 
@@ -317,6 +341,8 @@ EOF
     [[ -f ".ralph/fix_plan.md" ]]
     [[ -f ".ralph/AGENT.md" ]]
     [[ -f ".ralphrc" ]]
+    [[ -f ".gitignore" ]]
+    [[ "$(cat .gitignore)" == *".ralph/logs/"* ]]
 }
 
 @test "enable_ralph_in_directory returns ALREADY_ENABLED when complete and no force" {
