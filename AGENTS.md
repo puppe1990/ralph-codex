@@ -69,6 +69,10 @@ npm test
 # unit and integration split
 npm run test:unit
 npm run test:integration
+
+# targeted execution
+npm run test:file -- tests/unit/test_cli_modern.bats
+npm run test:grep -- "session" tests/unit/test_cli_modern.bats
 ```
 
 ## Quality Bar

@@ -12,7 +12,9 @@
     "test": "bats tests/unit/ tests/integration/",
     "test:unit": "bats tests/unit/",
     "test:integration": "bats tests/integration/",
-    "test:e2e": "bats tests/e2e/"
+    "test:e2e": "bats tests/e2e/",
+    "test:file": "bats",
+    "test:grep": "bats -f"
   },
   "repository": {
     "type": "git",

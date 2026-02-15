@@ -686,6 +686,16 @@ npm install -g bats bats-support bats-assert
 # Run all tests (498 tests)
 npm test
 
+# Run unit/integration only
+npm run test:unit
+npm run test:integration
+
+# Run one specific file
+npm run test:file -- tests/unit/test_cli_modern.bats
+
+# Run tests matching a name/pattern in a file (bats -f)
+npm run test:grep -- "session" tests/unit/test_cli_modern.bats
+
 # Run specific test suites
 bats tests/unit/test_rate_limiting.bats
 bats tests/unit/test_exit_detection.bats

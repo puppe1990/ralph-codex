@@ -335,6 +335,8 @@ tests/
 | `npm test` | Run all tests | Before committing, before PR |
 | `npm run test:unit` | Unit tests only | During development |
 | `npm run test:integration` | Integration tests only | Testing interactions |
+| `npm run test:file -- tests/unit/test_cli_modern.bats` | Single test file | Fast local debugging |
+| `npm run test:grep -- "session" tests/unit/test_cli_modern.bats` | Filter by test name (`-f`) | Isolate one behavior |
 | `bats tests/unit/test_file.bats` | Single test file | Debugging specific tests |
 
 ### Writing Tests
