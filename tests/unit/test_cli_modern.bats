@@ -597,6 +597,27 @@ EOF
     [[ "$output" == *"Next loop must include at least one change in src/ or tests/"* ]]
 }
 
+@test "update_status includes loop and timer fields for monitoring" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/update_status()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'"current_loop"'* ]]
+    [[ "$output" == *'"total_loops_executed"'* ]]
+    [[ "$output" == *'"session_elapsed_seconds"'* ]]
+    [[ "$output" == *'"loop_elapsed_seconds"'* ]]
+    [[ "$output" == *'"session_elapsed_hms"'* ]]
+    [[ "$output" == *'"loop_elapsed_hms"'* ]]
+}
+
+@test "execute_codex_code progress payload includes loop_count" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n '"loop_count": \$loop_count' "$script"
+    assert_success
+    [[ "$output" == *'"loop_count": $loop_count'* ]]
+}
+
 # =============================================================================
 # BUILD_CODEX_COMMAND TESTS (TDD)
 # Tests for the fix of --prompt-file -> -p flag
@@ -816,6 +837,18 @@ EOF
 
     assert_success
     [[ "$output" == *'< /dev/null'* ]]
+}
+
+@test "codex wait handling is set -e safe for non-zero exits" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -n 'if wait "$codex_pid"; then' "$script"
+    assert_success
+}
+
+@test "timeout failures return dedicated code path" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+    run grep -n 'return 4' "$script"
+    assert_success
 }
 
 @test "live mode is gracefully downgraded in Codex mode" {

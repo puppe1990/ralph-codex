@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/puppe1990/ralph-codex/actions/workflows/test.yml/badge.svg)](https://github.com/puppe1990/ralph-codex/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-0.11.4-blue)
-![Tests](https://img.shields.io/badge/tests-498%20passing-green)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Tests](https://img.shields.io/badge/tests-535%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/puppe1990/ralph-codex)](https://github.com/puppe1990/ralph-codex/issues)
 [![Mentioned in Awesome Codex CLI](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -16,9 +16,9 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 
 ## Project Status
 
-**Version**: v0.11.4 - Active Development
+**Version**: v1.0.0 - Active Development
 **Core Features**: Working and tested
-**Test Coverage**: 498 tests, 100% pass rate
+**Test Coverage**: 535 tests, 100% pass rate
 
 ### What's Working Now
 - Autonomous development loops with intelligent exit detection
@@ -138,14 +138,17 @@ Ralph is an implementation of Geoffrey Huntley's technique adapted for Codex CLI
 - **Intelligent Exit Detection** - Dual-condition check requiring BOTH completion indicators AND explicit EXIT_SIGNAL
 - **Session Continuity** - Preserves context across loop iterations with automatic session management
 - **Session Expiration** - Configurable timeout (default: 24 hours) with automatic session reset
+- **Timeout Recovery** - Timeout failures are logged explicitly and retried without silent loop termination
 - **Rate Limiting** - Built-in API call management with hourly limits and countdown timers
 - **5-Hour API Limit Handling** - Detects Codex CLI usage usage limit and offers wait/exit options
 - **Live Monitoring** - Real-time dashboard showing loop status, progress, and logs
+- **Tmux Auto-Close** - `ralph --monitor` tears down its tmux session when the main loop exits
 - **Task Management** - Structured approach with prioritized task lists and progress tracking
 - **Project Templates** - Quick setup for new projects with best-practice structure
 - **Interactive Project Setup** - `ralph-enable` wizard for existing projects with task import
 - **Configuration Files** - `.ralphrc` for project-specific settings and tool permissions
 - **Comprehensive Logging** - Detailed execution logs with timestamps and status tracking
+- **Loop + Timer Telemetry** - `status.json` and `ralph-monitor` now show current loop, total loops, session timer, and current loop timer
 - **Configurable Timeouts** - Set execution timeout for Codex CLI operations (1-120 minutes)
 - **Verbose Progress Mode** - Optional detailed progress updates during execution
 - **Response Analyzer** - AI-powered analysis of Codex CLI responses with semantic understanding

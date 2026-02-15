@@ -36,6 +36,17 @@ cleanup() {
     exit 0
 }
 
+format_hms() {
+    local total_seconds=${1:-0}
+    if [[ -z "$total_seconds" || "$total_seconds" -lt 0 ]]; then
+        total_seconds=0
+    fi
+    local hours=$((total_seconds / 3600))
+    local minutes=$(((total_seconds % 3600) / 60))
+    local seconds=$((total_seconds % 60))
+    printf '%02d:%02d:%02d' "$hours" "$minutes" "$seconds"
+}
+
 # Set up signal handlers
 trap cleanup SIGINT SIGTERM EXIT
 
@@ -55,14 +66,21 @@ display_status() {
         # Parse JSON status
         local status_data=$(cat "$STATUS_FILE")
         local loop_count=$(echo "$status_data" | jq -r '.loop_count // "0"' 2>/dev/null || echo "0")
+        local current_loop=$(echo "$status_data" | jq -r '.current_loop // .loop_count // "0"' 2>/dev/null || echo "0")
+        local total_loops=$(echo "$status_data" | jq -r '.total_loops_executed // .loop_count // "0"' 2>/dev/null || echo "0")
         local calls_made=$(echo "$status_data" | jq -r '.calls_made_this_hour // "0"' 2>/dev/null || echo "0")
         local max_calls=$(echo "$status_data" | jq -r '.max_calls_per_hour // "100"' 2>/dev/null || echo "100")
         local status=$(echo "$status_data" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
+        local session_elapsed=$(echo "$status_data" | jq -r '.session_elapsed_seconds // "0"' 2>/dev/null || echo "0")
+        local loop_elapsed=$(echo "$status_data" | jq -r '.loop_elapsed_seconds // "0"' 2>/dev/null || echo "0")
         
         echo -e "${CYAN}┌─ Current Status ────────────────────────────────────────────────────────┐${NC}"
-        echo -e "${CYAN}│${NC} Loop Count:     ${WHITE}#$loop_count${NC}"
+        echo -e "${CYAN}│${NC} Loop Atual:     ${WHITE}#$current_loop${NC}"
+        echo -e "${CYAN}│${NC} Loops Totais:   ${WHITE}$total_loops${NC}"
         echo -e "${CYAN}│${NC} Status:         ${GREEN}$status${NC}"
         echo -e "${CYAN}│${NC} API Calls:      $calls_made/$max_calls"
+        echo -e "${CYAN}│${NC} Timer Sessao:   $(format_hms "$session_elapsed")"
+        echo -e "${CYAN}│${NC} Timer Loop:     $(format_hms "$loop_elapsed")"
         echo -e "${CYAN}└─────────────────────────────────────────────────────────────────────────┘${NC}"
         echo
         
@@ -81,10 +99,12 @@ display_status() {
         if [[ "$progress_status" == "executing" ]]; then
             local indicator=$(echo "$progress_data" | jq -r '.indicator // "⠋"' 2>/dev/null || echo "⠋")
             local elapsed=$(echo "$progress_data" | jq -r '.elapsed_seconds // "0"' 2>/dev/null || echo "0")
+            local loop_number=$(echo "$progress_data" | jq -r '.loop_count // "0"' 2>/dev/null || echo "0")
             local last_output=$(echo "$progress_data" | jq -r '.last_output // ""' 2>/dev/null || echo "")
             
             echo -e "${YELLOW}┌─ Claude Code Progress ──────────────────────────────────────────────────┐${NC}"
-            echo -e "${YELLOW}│${NC} Status:         ${indicator} Working (${elapsed}s elapsed)"
+            echo -e "${YELLOW}│${NC} Loop:           #$loop_number"
+            echo -e "${YELLOW}│${NC} Status:         ${indicator} Working ($(format_hms "$elapsed"))"
             if [[ -n "$last_output" && "$last_output" != "" ]]; then
                 # Truncate long output for display
                 local display_output=$(echo "$last_output" | head -c 60)

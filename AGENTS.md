@@ -52,10 +52,12 @@ Compatibility no-op keys (kept only for older configs):
 - Codex execution is JSON events (`--json`) and later normalized for analyzers.
 - When supported by local Codex CLI, Ralph writes final model output via `--output-last-message` and uses it as preferred completion-analysis input (with JSONL fallback).
 - Session continuity prefers `.ralph/.codex_session_id` and falls back to native `exec resume --last` when available.
+- Monitor mode should auto-close its tmux session when the main loop pane exits.
 - Circuit breaker opens on stagnation/repeated errors/permission-denial patterns.
 - Permission failures should guide users to sandbox/approval configuration first.
 - Real implementation progress is scoped to changes under `src/` or `tests/`; `.ralph/*` docs-only edits should not count as code progress.
 - Enable/setup/bootstrap commands must update project `.gitignore` to hide Ralph runtime artifacts (logs, session/counter state, status/progress JSON files).
+- Status telemetry must include loop/timer fields consumed by monitor tooling: `current_loop`, `total_loops_executed`, `session_elapsed_seconds|hms`, and `loop_elapsed_seconds|hms`.
 
 ## Development Commands
 
@@ -73,6 +75,9 @@ npm run test:integration
 # targeted execution
 npm run test:file -- tests/unit/test_cli_modern.bats
 npm run test:grep -- "session" tests/unit/test_cli_modern.bats
+
+# README badge sync
+./scripts/update_readme_badges.sh --check
 ```
 
 ## Quality Bar

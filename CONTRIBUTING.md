@@ -90,6 +90,8 @@ ralph-codex/
 
 - Runtime artifacts must stay out of git status. If you touch enable/setup/bootstrap flows, ensure `.gitignore` receives Ralph runtime ignore entries.
 - Loop progress should represent implementation movement. Prefer changes in `src/` or `tests/`; docs-only loops should not be treated as real code progress.
+- Preserve status telemetry fields used by monitor/automation (`current_loop`, `total_loops_executed`, `session_elapsed_*`, `loop_elapsed_*`).
+- Keep README version/test badges synchronized with the source of truth using `./scripts/update_readme_badges.sh` (or `--check` in CI).
 
 ### Branch Naming Conventions
 

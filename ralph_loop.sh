@@ -253,6 +253,8 @@ mkdir -p "$LOG_DIR" "$DOCS_DIR"
 
 # Single-instance lock state
 LOCK_ACQUIRED=false
+SESSION_START_EPOCH=0
+CURRENT_LOOP_START_EPOCH=0
 
 # Acquire a per-project lock to prevent concurrent loops from corrupting state files.
 acquire_instance_lock() {
@@ -428,7 +430,9 @@ setup_tmux_session() {
         ralph_cmd="$ralph_cmd --ephemeral"
     fi
 
-    tmux send-keys -t "$session_name:${base_win}.0" "$ralph_cmd" Enter
+    # Ensure the tmux session is torn down when the main Ralph loop exits.
+    local wrapped_ralph_cmd="$ralph_cmd; ralph_exit_code=\$?; tmux kill-session -t '$session_name' >/dev/null 2>&1; exit \$ralph_exit_code"
+    tmux send-keys -t "$session_name:${base_win}.0" "$wrapped_ralph_cmd" Enter
 
     # Focus on left pane (main ralph loop)
     tmux select-pane -t "$session_name:${base_win}.0"
@@ -447,6 +451,7 @@ setup_tmux_session() {
     log_status "INFO" "  Right-bottom: Status monitor"
     log_status "INFO" ""
     log_status "INFO" "Use Ctrl+B then D to detach from session"
+    log_status "INFO" "Session auto-closes when the Ralph loop pane exits"
     log_status "INFO" "Use 'tmux attach -t $session_name' to reattach"
 
     # Attach to session (this will block until session ends)
@@ -601,6 +606,25 @@ count_scoped_code_changed_files() {
     printf '%s\n' "$changed_files" | sed '/^[[:space:]]*$/d' | grep -E '^(src|tests)/' | wc -l | tr -d '[:space:]'
 }
 
+get_now_epoch() {
+    if command -v get_epoch_timestamp >/dev/null 2>&1; then
+        get_epoch_timestamp
+    else
+        date +%s
+    fi
+}
+
+format_elapsed_hms() {
+    local total_seconds=${1:-0}
+    if [[ -z "$total_seconds" || "$total_seconds" -lt 0 ]]; then
+        total_seconds=0
+    fi
+    local hours=$((total_seconds / 3600))
+    local minutes=$(((total_seconds % 3600) / 60))
+    local seconds=$((total_seconds % 60))
+    printf '%02d:%02d:%02d' "$hours" "$minutes" "$seconds"
+}
+
 # Update status JSON for external monitoring
 update_status() {
     local loop_count=$1
@@ -608,16 +632,41 @@ update_status() {
     local last_action=$3
     local status=$4
     local exit_reason=${5:-""}
+    local now_epoch
+    now_epoch=$(get_now_epoch)
+
+    local session_elapsed_seconds=0
+    if [[ "$SESSION_START_EPOCH" -gt 0 ]]; then
+        session_elapsed_seconds=$((now_epoch - SESSION_START_EPOCH))
+    fi
+
+    local loop_elapsed_seconds=0
+    if [[ "$CURRENT_LOOP_START_EPOCH" -gt 0 ]]; then
+        loop_elapsed_seconds=$((now_epoch - CURRENT_LOOP_START_EPOCH))
+    fi
+
+    local session_elapsed_human
+    session_elapsed_human=$(format_elapsed_hms "$session_elapsed_seconds")
+    local loop_elapsed_human
+    loop_elapsed_human=$(format_elapsed_hms "$loop_elapsed_seconds")
     
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(get_iso_timestamp)",
     "loop_count": $loop_count,
+    "current_loop": $loop_count,
+    "total_loops_executed": $loop_count,
     "calls_made_this_hour": $calls_made,
     "max_calls_per_hour": $MAX_CALLS_PER_HOUR,
     "last_action": "$last_action",
     "status": "$status",
     "exit_reason": "$exit_reason",
+    "session_started_epoch": $SESSION_START_EPOCH,
+    "session_elapsed_seconds": $session_elapsed_seconds,
+    "session_elapsed_hms": "$session_elapsed_human",
+    "loop_started_epoch": $CURRENT_LOOP_START_EPOCH,
+    "loop_elapsed_seconds": $loop_elapsed_seconds,
+    "loop_elapsed_hms": "$loop_elapsed_human",
     "next_reset": "$(get_next_hour_time)"
 }
 STATUSEOF
@@ -1483,6 +1532,7 @@ execute_codex_code() {
         cat > "$PROGRESS_FILE" << EOF
 {
     "status": "executing",
+    "loop_count": $loop_count,
     "indicator": "$progress_indicator",
     "elapsed_seconds": $((progress_counter * 10)),
     "last_output": "$last_line",
@@ -1502,9 +1552,13 @@ EOF
         sleep 10
     done
 
-    # Wait for the process to finish and get exit code
-    wait $codex_pid
-    exit_code=$?
+    # Wait for the process to finish and get exit code.
+    # Keep this inside an if-condition so non-zero exits do not trigger set -e.
+    if wait "$codex_pid"; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
 
     # Convert Codex JSONL output to plain assistant message text for analyzer
     if [[ -f "$jsonl_file" && -s "$jsonl_file" ]]; then
@@ -1627,8 +1681,13 @@ EOF
         # Clear progress file on failure
         echo '{"status": "failed", "timestamp": "'$(date '+%Y-%m-%d %H:%M:%S')'"}' > "$PROGRESS_FILE"
 
+        # Handle timeout explicitly for clearer diagnostics and recovery.
+        if [[ $exit_code -eq 124 ]] || grep -qiE "timed out|timeout" "$stderr_file" 2>/dev/null; then
+            log_status "ERROR" "⏰ Codex CLI timed out after ${CODEX_TIMEOUT_MINUTES} minute(s)"
+            log_status "ERROR" "Increase timeout with: ralph --timeout <minutes>"
+            return 4
         # Check if the failure is due to provider usage limits
-        if grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
+        elif grep -qi "5.*hour.*limit\|limit.*reached.*try.*back\|usage.*limit.*reached" "$output_file"; then
             log_status "ERROR" "🚫 API usage limit reached"
             return 2  # Special return code for API limit
         else
@@ -1724,6 +1783,7 @@ main() {
 
     # Initialize session tracking before entering the loop
     init_session_tracking
+    SESSION_START_EPOCH=$(get_now_epoch)
 
     # Prevent concurrent Ralph loops in the same project.
     if ! acquire_instance_lock; then
@@ -1734,6 +1794,7 @@ main() {
     
     while true; do
         loop_count=$((loop_count + 1))
+        CURRENT_LOOP_START_EPOCH=$(get_now_epoch)
 
         # Update session last_used timestamp
         update_session_last_used
@@ -1855,6 +1916,11 @@ main() {
                 done
                 printf "\n"
             fi
+        elif [ $exec_result -eq 4 ]; then
+            # Timeout reached - keep loop alive with explicit status
+            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "timeout" "retrying" "execution_timeout"
+            log_status "WARN" "Execution timed out, waiting 30 seconds before retry..."
+            sleep 30
         else
             update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "failed" "error"
             log_status "WARN" "Execution failed, waiting 30 seconds before retry..."

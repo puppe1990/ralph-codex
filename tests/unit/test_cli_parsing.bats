@@ -539,6 +539,12 @@ build_ralph_cmd_for_test() {
     echo "$ralph_cmd"
 }
 
+wrap_monitor_command_for_test() {
+    local session_name="${1:-ralph-test}"
+    local ralph_cmd="${2:-ralph --live}"
+    echo "$ralph_cmd; ralph_exit_code=\$?; tmux kill-session -t '$session_name' >/dev/null 2>&1; exit \$ralph_exit_code"
+}
+
 @test "monitor forwards --verbose parameter" {
     local result=$(build_ralph_cmd_for_test 100 ".ralph/PROMPT.md" "true")
     [[ "$result" == *"--verbose"* ]]
@@ -603,4 +609,13 @@ build_ralph_cmd_for_test() {
 
     [[ "$result" == *"--skip-git-repo-check"* ]]
     [[ "$result" == *"--ephemeral"* ]]
+}
+
+@test "monitor wraps command to auto-close tmux session on loop exit" {
+    local wrapped_cmd
+    wrapped_cmd=$(wrap_monitor_command_for_test "ralph-123" "ralph --live --timeout 30")
+
+    [[ "$wrapped_cmd" == *"ralph --live --timeout 30"* ]]
+    [[ "$wrapped_cmd" == *"tmux kill-session -t 'ralph-123'"* ]]
+    [[ "$wrapped_cmd" == *"exit \$ralph_exit_code"* ]]
 }
