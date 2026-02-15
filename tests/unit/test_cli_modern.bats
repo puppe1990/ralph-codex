@@ -1016,3 +1016,30 @@ EOF
     # Should find 0 matches (the gate has been removed)
     [[ "$output" == "0" ]]
 }
+
+@test "resume flag skip warnings are emitted via log_warn_once helper" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/append_codex_structured_output_flags()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'log_warn_once "WARNED_SKIP_OUTPUT_LAST_MESSAGE"'* ]]
+    [[ "$output" == *'log_warn_once "WARNED_SKIP_OUTPUT_SCHEMA"'* ]]
+
+    run bash -c "sed -n '/build_codex_command()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'log_warn_once "WARNED_SKIP_RUNTIME_FLAGS"'* ]]
+}
+
+@test "execute_codex_code captures baseline and suppresses known codex stderr noise" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/execute_codex_code()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'collect_changed_files_since_loop_start > "$LOOP_START_CHANGED_FILES_FILE"'* ]]
+    [[ "$output" == *'append_codex_stderr_diagnostics "$output_file" "$stderr_file"'* ]]
+
+    run bash -c "sed -n '/append_codex_stderr_diagnostics()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'Suppressed $known_count known Codex state-db rollout warning(s).'* ]]
+    [[ "$output" == *'codex_core::rollout::list: state db missing rollout path'* ]]
+}

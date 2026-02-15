@@ -132,9 +132,15 @@ VALID_TOOL_PATTERNS=(
 # Exit detection configuration
 EXIT_SIGNALS_FILE="$RALPH_DIR/.exit_signals"
 RESPONSE_ANALYSIS_FILE="$RALPH_DIR/.response_analysis"
+LOOP_START_CHANGED_FILES_FILE="$RALPH_DIR/.loop_start_changed_files"
 MAX_CONSECUTIVE_TEST_LOOPS=3
 MAX_CONSECUTIVE_DONE_SIGNALS=2
 TEST_PERCENTAGE_THRESHOLD=30  # If more than 30% of recent loops are test-only, flag it
+
+# Resume warning noise suppression (log once per Ralph session)
+WARNED_SKIP_RUNTIME_FLAGS=false
+WARNED_SKIP_OUTPUT_LAST_MESSAGE=false
+WARNED_SKIP_OUTPUT_SCHEMA=false
 
 # .ralphrc configuration file
 RALPHRC_FILE=".ralphrc"
@@ -507,6 +513,20 @@ log_status() {
     echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
 }
 
+log_warn_once() {
+    local flag_var=$1
+    local message=$2
+
+    if [[ "${VERBOSE_PROGRESS:-false}" != "true" ]]; then
+        return 0
+    fi
+
+    if [[ "${!flag_var:-false}" != "true" ]]; then
+        log_status "WARN" "$message"
+        printf -v "$flag_var" "true"
+    fi
+}
+
 # Convert the latest Codex JSONL event into a concise human-readable progress line.
 format_codex_progress_from_event() {
     local jsonl_file=$1
@@ -569,6 +589,10 @@ format_codex_progress_from_event() {
 collect_changed_files_since_loop_start() {
     local loop_start_sha=""
     local current_sha=""
+    local committed_changes=""
+    local working_changes=""
+    local baseline_changes=""
+    local new_working_changes=""
 
     if ! command -v git &>/dev/null || ! git rev-parse --git-dir &>/dev/null 2>&1; then
         return 0
@@ -580,19 +604,33 @@ collect_changed_files_since_loop_start() {
     current_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
 
     if [[ -n "$loop_start_sha" && -n "$current_sha" && "$loop_start_sha" != "$current_sha" ]]; then
+        committed_changes=$(git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null | sed '/^[[:space:]]*$/d' | sort -u || true)
+    else
+        committed_changes=""
+    fi
+
+    working_changes=$(
         {
-            git diff --name-only "$loop_start_sha" "$current_sha" 2>/dev/null
             git diff --name-only HEAD 2>/dev/null
             git diff --name-only --cached 2>/dev/null
             git ls-files --others --exclude-standard 2>/dev/null
-        } | sed '/^[[:space:]]*$/d' | sort -u
-    else
-        {
-            git diff --name-only 2>/dev/null
-            git diff --name-only --cached 2>/dev/null
-            git ls-files --others --exclude-standard 2>/dev/null
-        } | sed '/^[[:space:]]*$/d' | sort -u
+        } | sed '/^[[:space:]]*$/d' | sort -u || true
+    )
+
+    if [[ -f "$LOOP_START_CHANGED_FILES_FILE" ]]; then
+        baseline_changes=$(sed '/^[[:space:]]*$/d' "$LOOP_START_CHANGED_FILES_FILE" 2>/dev/null | sort -u || true)
     fi
+
+    if [[ -n "$baseline_changes" ]]; then
+        new_working_changes=$(comm -23 <(printf '%s\n' "$working_changes" | sed '/^[[:space:]]*$/d' | sort -u) <(printf '%s\n' "$baseline_changes" | sed '/^[[:space:]]*$/d' | sort -u) || true)
+    else
+        new_working_changes="$working_changes"
+    fi
+
+    {
+        printf '%s\n' "$committed_changes"
+        printf '%s\n' "$new_working_changes"
+    } | sed '/^[[:space:]]*$/d' | sort -u
 }
 
 count_total_changed_files() {
@@ -1369,14 +1407,14 @@ append_codex_structured_output_flags() {
 
     if [[ "$supports_last_message" == "true" && -n "$CODEX_LAST_MESSAGE_FILE" ]]; then
         CODEX_CMD_ARGS+=("--output-last-message" "$CODEX_LAST_MESSAGE_FILE")
-    elif [[ "$CODEX_RESUME_STRATEGY" != "new" && "$VERBOSE_PROGRESS" == "true" ]]; then
-        log_status "WARN" "Skipping --output-last-message for resume strategy: $CODEX_RESUME_STRATEGY"
+    elif [[ "$CODEX_RESUME_STRATEGY" != "new" ]]; then
+        log_warn_once "WARNED_SKIP_OUTPUT_LAST_MESSAGE" "Skipping --output-last-message for resume strategy: $CODEX_RESUME_STRATEGY"
     fi
 
     if [[ "$supports_output_schema" == "true" && -n "$CODEX_OUTPUT_SCHEMA_FILE" && -f "$CODEX_OUTPUT_SCHEMA_FILE" ]]; then
         CODEX_CMD_ARGS+=("--output-schema" "$CODEX_OUTPUT_SCHEMA_FILE")
-    elif [[ "$CODEX_RESUME_STRATEGY" != "new" && "$VERBOSE_PROGRESS" == "true" ]]; then
-        log_status "WARN" "Skipping --output-schema for resume strategy: $CODEX_RESUME_STRATEGY"
+    elif [[ "$CODEX_RESUME_STRATEGY" != "new" ]]; then
+        log_warn_once "WARNED_SKIP_OUTPUT_SCHEMA" "Skipping --output-schema for resume strategy: $CODEX_RESUME_STRATEGY"
     fi
 }
 
@@ -1435,8 +1473,8 @@ build_codex_command() {
     # Keep resume stable by applying runtime controls only on fresh `exec`.
     if [[ "$CODEX_RESUME_STRATEGY" == "new" ]]; then
         append_codex_runtime_flags
-    elif [[ "$VERBOSE_PROGRESS" == "true" ]]; then
-        log_status "WARN" "Skipping runtime sandbox/profile flags for resume strategy: $CODEX_RESUME_STRATEGY"
+    else
+        log_warn_once "WARNED_SKIP_RUNTIME_FLAGS" "Skipping runtime sandbox/profile flags for resume strategy: $CODEX_RESUME_STRATEGY"
     fi
     append_codex_structured_output_flags
 
@@ -1462,6 +1500,45 @@ build_claude_command() {
     build_codex_command "$@"
 }
 
+append_codex_stderr_diagnostics() {
+    local output_file=$1
+    local stderr_file=$2
+
+    if [[ ! -f "$stderr_file" || ! -s "$stderr_file" ]]; then
+        return 0
+    fi
+
+    local known_pattern='codex_core::rollout::list: state db missing rollout path|codex_core::state_db: state db record_discrepancy'
+    local known_count=0
+    local unknown_lines=""
+
+    known_count=$(grep -E "$known_pattern" "$stderr_file" 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d '[:space:]' || echo "0")
+    unknown_lines=$(grep -Ev "$known_pattern" "$stderr_file" 2>/dev/null | sed '/^[[:space:]]*$/d' || true)
+
+    if [[ "$known_count" -gt 0 && -z "$unknown_lines" ]]; then
+        {
+            echo ""
+            echo "--- CODEX STDERR ---"
+            echo "Suppressed $known_count known Codex state-db rollout warning(s)."
+            echo "See full details in: $stderr_file"
+        } >> "$output_file"
+        if [[ "${VERBOSE_PROGRESS:-false}" == "true" ]]; then
+            log_status "INFO" "Codex stderr contained only known rollout/state-db warnings ($known_count lines)."
+        fi
+        return 0
+    fi
+
+    {
+        echo ""
+        echo "--- CODEX STDERR ---"
+        cat "$stderr_file"
+    } >> "$output_file"
+
+    if [[ -n "$unknown_lines" ]]; then
+        log_status "WARN" "Codex stderr contains non-ignorable diagnostics, check: $stderr_file"
+    fi
+}
+
 # Main execution function
 execute_codex_code() {
     local timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
@@ -1480,6 +1557,8 @@ execute_codex_code() {
         loop_start_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
     fi
     echo "$loop_start_sha" > "$RALPH_DIR/.loop_start_sha"
+    # Capture pre-existing repo changes so "real code progress" measures delta for this loop.
+    collect_changed_files_since_loop_start > "$LOOP_START_CHANGED_FILES_FILE" 2>/dev/null || true
 
     log_status "LOOP" "Executing Codex CLI (Call $calls_made/$MAX_CALLS_PER_HOUR)"
     local timeout_seconds=$((CODEX_TIMEOUT_MINUTES * 60))
@@ -1595,14 +1674,8 @@ EOF
         fi
     fi
 
-    # Append stderr diagnostics to output log (if any)
-    if [[ -f "$stderr_file" && -s "$stderr_file" ]]; then
-        {
-            echo ""
-            echo "--- CODEX STDERR ---"
-            cat "$stderr_file"
-        } >> "$output_file"
-    fi
+    # Append stderr diagnostics to output log (with known-warning suppression).
+    append_codex_stderr_diagnostics "$output_file" "$stderr_file"
 
     if [ $exit_code -eq 0 ]; then
         # Only increment counter on successful execution
