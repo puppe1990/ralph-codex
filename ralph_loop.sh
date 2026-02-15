@@ -1852,16 +1852,24 @@ build_codex_command() {
     CODEX_CMD_ARGS+=("--json")
 
     # Session continuity strategy:
-    # 1) Prefer explicit thread id from .ralph/.codex_session_id
-    # 2) Fallback to native "resume --last" when supported and past first loop
+    # 1) Prefer native "resume --last" (Codex picks most recent, cwd-aware thread)
+    # 2) Fallback to explicit thread id from .ralph/.codex_session_id
     # 3) Fallback to fresh "exec"
     if [[ "$CODEX_USE_CONTINUE" == "true" ]]; then
-        if [[ -n "$session_id" ]]; then
-            CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "$session_id")
-            CODEX_RESUME_STRATEGY="session_id"
-        elif [[ "$CODEX_SUPPORTS_RESUME_LAST" == "true" && "$loop_count" -gt 1 ]]; then
+        if [[ "$CODEX_SUPPORTS_RESUME_LAST" == "true" && ( "$loop_count" -gt 1 || -n "$session_id" ) ]]; then
             CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "--last")
             CODEX_RESUME_STRATEGY="last"
+            # Keep resume selection bound to intended project root when configured.
+            if [[ -n "$CODEX_CWD" ]]; then
+                CODEX_CMD_ARGS+=("--cd" "$CODEX_CWD")
+            fi
+        elif [[ -n "$session_id" ]]; then
+            CODEX_CMD_ARGS=("$CODEX_CODE_CMD" "exec" "resume" "--json" "$session_id")
+            CODEX_RESUME_STRATEGY="session_id"
+            # Keep resume selection bound to intended project root when configured.
+            if [[ -n "$CODEX_CWD" ]]; then
+                CODEX_CMD_ARGS+=("--cd" "$CODEX_CWD")
+            fi
         fi
     fi
 
@@ -1904,7 +1912,7 @@ append_codex_stderr_diagnostics() {
         return 0
     fi
 
-    local known_pattern='codex_core::rollout::list: state db missing rollout path|codex_core::state_db: state db record_discrepancy'
+    local known_pattern='state db missing rollout path|state db record_discrepancy'
     local known_count=0
     local unknown_lines=""
 

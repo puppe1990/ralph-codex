@@ -564,11 +564,11 @@ EOF
 
     run bash -c "sed -n '/build_codex_command()/,/^}/p' '$script'"
     assert_success
-    [[ "$output" == *'if [[ -n "$session_id" ]]'* ]]
-    [[ "$output" == *'CODEX_RESUME_STRATEGY="session_id"'* ]]
+    [[ "$output" == *'if [[ "$CODEX_SUPPORTS_RESUME_LAST" == "true" && ( "$loop_count" -gt 1 || -n "$session_id" ) ]]'* ]]
     [[ "$output" == *'CODEX_SUPPORTS_RESUME_LAST'* ]]
     [[ "$output" == *'--last'* ]]
     [[ "$output" == *'CODEX_RESUME_STRATEGY="last"'* ]]
+    [[ "$output" == *'CODEX_RESUME_STRATEGY="session_id"'* ]]
 }
 
 @test "build_codex_command applies runtime flags only for fresh exec strategy" {
@@ -1078,5 +1078,6 @@ EOF
     run bash -c "sed -n '/append_codex_stderr_diagnostics()/,/^}/p' '$script'"
     assert_success
     [[ "$output" == *'Suppressed $known_count known Codex state-db rollout warning(s).'* ]]
-    [[ "$output" == *'codex_core::rollout::list: state db missing rollout path'* ]]
+    [[ "$output" == *'state db missing rollout path'* ]]
+    [[ "$output" == *'state db record_discrepancy'* ]]
 }

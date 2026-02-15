@@ -247,6 +247,9 @@ Minimum required fields include:
 - loop/timer telemetry (`current_loop`, `total_loops_executed`, `session_elapsed_*`, `loop_elapsed_*`)
 - API limit pause telemetry (`api_limit_paused`, `api_limit_wait_*`)
 - canonical quota payload (`codex_quota_effective`) used by UI/diagnostics
+
+Session continuity changes must preserve the default resume preference order:
+`exec resume --last` (cwd-aware) first, then explicit session id fallback.
 | File names | snake_case.sh | `circuit_breaker.sh` |
 | Control files | snake_case.md | `fix_plan.md`, `AGENT.md` |
 

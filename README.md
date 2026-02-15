@@ -594,8 +594,8 @@ cat .ralph/.ralph_session_history      # View session transition history
 ```
 
 Resume strategy order in Codex mode:
-1. Use stored thread id from `.ralph/.codex_session_id`
-2. If missing and supported by local CLI, use `codex exec resume --last`
+1. Prefer `codex exec resume --last` (cwd-aware and safer against stale thread ids)
+2. Fall back to stored thread id from `.ralph/.codex_session_id`
 3. Fall back to a fresh `codex exec`
 
 **Session Auto-Reset Triggers:**
