@@ -549,6 +549,16 @@ EOF
     [[ "$output" == *'CODEX_RESUME_STRATEGY="last"'* ]]
 }
 
+@test "build_codex_command applies runtime flags only for fresh exec strategy" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/build_codex_command()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'if [[ "$CODEX_RESUME_STRATEGY" == "new" ]]; then'* ]]
+    [[ "$output" == *'append_codex_runtime_flags'* ]]
+    [[ "$output" == *'Skipping runtime sandbox/profile flags for resume strategy'* ]]
+}
+
 # =============================================================================
 # BUILD_CODEX_COMMAND TESTS (TDD)
 # Tests for the fix of --prompt-file -> -p flag

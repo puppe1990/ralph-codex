@@ -1257,7 +1257,14 @@ build_codex_command() {
             CODEX_RESUME_STRATEGY="last"
         fi
     fi
-    append_codex_runtime_flags
+
+    # Some Codex CLI versions reject runtime/sandbox flags in `exec resume` mode.
+    # Keep resume stable by applying runtime controls only on fresh `exec`.
+    if [[ "$CODEX_RESUME_STRATEGY" == "new" ]]; then
+        append_codex_runtime_flags
+    elif [[ "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "WARN" "Skipping runtime sandbox/profile flags for resume strategy: $CODEX_RESUME_STRATEGY"
+    fi
     append_codex_structured_output_flags
 
     # Read prompt file content and append loop context inline
