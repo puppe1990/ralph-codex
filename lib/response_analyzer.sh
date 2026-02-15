@@ -115,7 +115,9 @@ parse_json_response() {
                     end
                 ];
             {
-                status: (if any(.[]; .type == "turn.completed") then "COMPLETE" else "UNKNOWN" end),
+                # turn.completed means only that one turn ended successfully,
+                # not that the whole project is complete.
+                status: "UNKNOWN",
                 exit_signal: false,
                 work_type: "UNKNOWN",
                 files_modified: (file_paths | length),
@@ -216,6 +218,9 @@ parse_json_response() {
             # This respects explicit EXIT_SIGNAL: false which means "task complete, continue working"
             local embedded_status
             embedded_status=$(echo "$result_text" | grep "STATUS:" | cut -d: -f2 | xargs)
+            if [[ -n "$embedded_status" ]]; then
+                status="$embedded_status"
+            fi
             if [[ "$embedded_status" == "COMPLETE" && "$explicit_exit_signal_found" != "true" ]]; then
                 # STATUS: COMPLETE without any EXIT_SIGNAL field implies completion
                 exit_signal="true"

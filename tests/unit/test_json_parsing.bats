@@ -165,6 +165,25 @@ EOF
     assert_equal "$(jq -r '.exit_signal' "$result_file")" "true"
 }
 
+@test "parse_json_response keeps IN_PROGRESS without false completion for Codex JSONL turns" {
+    local output_file="$LOG_DIR/test_events_in_progress.jsonl"
+
+    cat > "$output_file" << 'EOF'
+{"type":"thread.started","thread_id":"thread-keep-going"}
+{"type":"item.completed","item":{"type":"agent_message","text":"Still working.\n---RALPH_STATUS---\nSTATUS: IN_PROGRESS\nEXIT_SIGNAL: false\n---END_RALPH_STATUS---"}}
+{"type":"turn.completed","usage":{"input_tokens":9,"cached_input_tokens":0,"output_tokens":11}}
+EOF
+
+    run parse_json_response "$output_file"
+    local result_file="$RALPH_DIR/.json_parse_result"
+
+    [[ -f "$result_file" ]]
+    assert_equal "$(jq -r '.session_id' "$result_file")" "thread-keep-going"
+    assert_equal "$(jq -r '.status' "$result_file")" "IN_PROGRESS"
+    assert_equal "$(jq -r '.exit_signal' "$result_file")" "false"
+    assert_equal "$(jq -r '.has_completion_signal' "$result_file")" "false"
+}
+
 @test "parse_json_response extracts exit_signal correctly" {
     local output_file="$LOG_DIR/test_output.log"
 

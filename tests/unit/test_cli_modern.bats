@@ -209,7 +209,7 @@ teardown() {
 @test "CLI parser syncs compatibility aliases once after argument parsing" {
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
-    run rg -n "Ensure compatibility aliases reflect latest CLI parsing results|sync_legacy_aliases" "$script"
+    run grep -nE "Ensure compatibility aliases reflect latest CLI parsing results|sync_legacy_aliases" "$script"
     assert_success
     [[ "$output" == *"Ensure compatibility aliases reflect latest CLI parsing results"* ]]
     [[ "$output" == *"sync_legacy_aliases"* ]]
@@ -525,6 +525,28 @@ EOF
     run bash -c "sed -n '/append_codex_structured_output_flags()/,/^}/p' '$script'"
     assert_success
     [[ "$output" == *"--output-schema"* ]]
+}
+
+@test "detect_codex_structured_output_capabilities checks resume help for structured flags" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/detect_codex_structured_output_capabilities()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'exec resume --help'* ]]
+    [[ "$output" == *'CODEX_RESUME_SUPPORTS_OUTPUT_LAST_MESSAGE'* ]]
+    [[ "$output" == *'CODEX_RESUME_SUPPORTS_OUTPUT_SCHEMA'* ]]
+}
+
+@test "append_codex_structured_output_flags gates flags by resume strategy support" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/append_codex_structured_output_flags()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'if [[ "$CODEX_RESUME_STRATEGY" != "new" ]]; then'* ]]
+    [[ "$output" == *'CODEX_RESUME_SUPPORTS_OUTPUT_LAST_MESSAGE'* ]]
+    [[ "$output" == *'CODEX_RESUME_SUPPORTS_OUTPUT_SCHEMA'* ]]
+    [[ "$output" == *'Skipping --output-last-message for resume strategy'* ]]
+    [[ "$output" == *'Skipping --output-schema for resume strategy'* ]]
 }
 
 @test "analysis input selection prefers last message then jsonl then output log" {

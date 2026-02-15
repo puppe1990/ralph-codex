@@ -867,8 +867,10 @@ check_claude_version() {
 detect_codex_structured_output_capabilities() {
     CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE=false
     CODEX_SUPPORTS_OUTPUT_SCHEMA=false
+    CODEX_RESUME_SUPPORTS_OUTPUT_LAST_MESSAGE=false
+    CODEX_RESUME_SUPPORTS_OUTPUT_SCHEMA=false
 
-    local help_output
+    local help_output resume_help_output
     help_output=$("$CODEX_CODE_CMD" exec --help 2>/dev/null || true)
     if [[ -z "$help_output" ]]; then
         log_status "WARN" "Could not inspect Codex exec --help; structured output flags disabled"
@@ -882,8 +884,19 @@ detect_codex_structured_output_capabilities() {
         CODEX_SUPPORTS_OUTPUT_SCHEMA=true
     fi
 
+    resume_help_output=$("$CODEX_CODE_CMD" exec resume --help 2>/dev/null || true)
+    if [[ -n "$resume_help_output" ]]; then
+        if echo "$resume_help_output" | grep -q -- "--output-last-message"; then
+            CODEX_RESUME_SUPPORTS_OUTPUT_LAST_MESSAGE=true
+        fi
+        if echo "$resume_help_output" | grep -q -- "--output-schema"; then
+            CODEX_RESUME_SUPPORTS_OUTPUT_SCHEMA=true
+        fi
+    fi
+
     if [[ "$VERBOSE_PROGRESS" == "true" ]]; then
         log_status "INFO" "Codex structured flags: output-last-message=$CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE output-schema=$CODEX_SUPPORTS_OUTPUT_SCHEMA"
+        log_status "INFO" "Codex resume structured flags: output-last-message=$CODEX_RESUME_SUPPORTS_OUTPUT_LAST_MESSAGE output-schema=$CODEX_RESUME_SUPPORTS_OUTPUT_SCHEMA"
     fi
 }
 
@@ -1346,12 +1359,24 @@ append_codex_runtime_flags() {
 
 # Append optional structured output flags when the installed Codex CLI supports them.
 append_codex_structured_output_flags() {
-    if [[ "$CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE" == "true" && -n "$CODEX_LAST_MESSAGE_FILE" ]]; then
-        CODEX_CMD_ARGS+=("--output-last-message" "$CODEX_LAST_MESSAGE_FILE")
+    local supports_last_message="$CODEX_SUPPORTS_OUTPUT_LAST_MESSAGE"
+    local supports_output_schema="$CODEX_SUPPORTS_OUTPUT_SCHEMA"
+
+    if [[ "$CODEX_RESUME_STRATEGY" != "new" ]]; then
+        supports_last_message="$CODEX_RESUME_SUPPORTS_OUTPUT_LAST_MESSAGE"
+        supports_output_schema="$CODEX_RESUME_SUPPORTS_OUTPUT_SCHEMA"
     fi
 
-    if [[ "$CODEX_SUPPORTS_OUTPUT_SCHEMA" == "true" && -n "$CODEX_OUTPUT_SCHEMA_FILE" && -f "$CODEX_OUTPUT_SCHEMA_FILE" ]]; then
+    if [[ "$supports_last_message" == "true" && -n "$CODEX_LAST_MESSAGE_FILE" ]]; then
+        CODEX_CMD_ARGS+=("--output-last-message" "$CODEX_LAST_MESSAGE_FILE")
+    elif [[ "$CODEX_RESUME_STRATEGY" != "new" && "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "WARN" "Skipping --output-last-message for resume strategy: $CODEX_RESUME_STRATEGY"
+    fi
+
+    if [[ "$supports_output_schema" == "true" && -n "$CODEX_OUTPUT_SCHEMA_FILE" && -f "$CODEX_OUTPUT_SCHEMA_FILE" ]]; then
         CODEX_CMD_ARGS+=("--output-schema" "$CODEX_OUTPUT_SCHEMA_FILE")
+    elif [[ "$CODEX_RESUME_STRATEGY" != "new" && "$VERBOSE_PROGRESS" == "true" ]]; then
+        log_status "WARN" "Skipping --output-schema for resume strategy: $CODEX_RESUME_STRATEGY"
     fi
 }
 
