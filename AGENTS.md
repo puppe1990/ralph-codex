@@ -90,6 +90,14 @@ When changing user-facing behavior, update at least:
 - `/Users/matheuspuppe/Desktop/Projetos/github/ralph-codex/CONTRIBUTING.md`
 - `/Users/matheuspuppe/Desktop/Projetos/github/ralph-codex/AGENTS.md`
 
+## Global Install Sync
+
+Whenever you change Ralph runtime/CLI behavior (for example `ralph_loop.sh`, `ralph_enable*`, `setup.sh`, files under `lib/`, or install wrappers), you must also:
+
+1. Reinstall global commands with:
+   - `/Users/matheuspuppe/Desktop/Projetos/github/ralph-codex/install.sh install`
+2. Validate global command behavior from `~/.local/bin/ralph`/`~/.ralph/ralph_loop.sh` (at minimum `ralph --help` and newly added flags/options).
+
 ## Quick Checklist for Agent Changes
 
 - [ ] Code changed minimally and coherently

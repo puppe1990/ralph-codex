@@ -559,6 +559,25 @@ EOF
     [[ "$output" == *'Skipping runtime sandbox/profile flags for resume strategy'* ]]
 }
 
+@test "format_codex_progress_from_event handles key Codex event item types" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/format_codex_progress_from_event()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *"command_execution"* ]]
+    [[ "$output" == *"agent_message"* ]]
+    [[ "$output" == *"mcp_tool_call"* ]]
+    [[ "$output" == *"reasoning"* ]]
+}
+
+@test "execute_codex_code uses formatted Codex progress line instead of raw tail output" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/execute_codex_code()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'last_line=$(format_codex_progress_from_event "$jsonl_file")'* ]]
+}
+
 # =============================================================================
 # BUILD_CODEX_COMMAND TESTS (TDD)
 # Tests for the fix of --prompt-file -> -p flag

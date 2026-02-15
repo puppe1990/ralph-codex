@@ -502,6 +502,63 @@ log_status() {
     echo "[$timestamp] [$level] $message" >> "$LOG_DIR/ralph.log"
 }
 
+# Convert the latest Codex JSONL event into a concise human-readable progress line.
+format_codex_progress_from_event() {
+    local jsonl_file=$1
+
+    if [[ ! -f "$jsonl_file" ]] || [[ ! -s "$jsonl_file" ]]; then
+        echo ""
+        return 0
+    fi
+
+    local raw_event
+    raw_event=$(tail -1 "$jsonl_file" 2>/dev/null)
+    if [[ -z "$raw_event" ]]; then
+        echo ""
+        return 0
+    fi
+
+    local formatted
+    formatted=$(echo "$raw_event" | jq -r '
+        def trunc($n):
+            (tostring | gsub("[\r\n]+"; " ")) as $s |
+            if ($s | length) > $n then ($s[0:$n] + "...") else $s end;
+        if .type == "item.started" then
+            "started: " + (.item.type // "item")
+            + (if (.item.command // "") != "" then " (" + (.item.command | trunc(60)) + ")" else "" end)
+        elif .type == "item.completed" then
+            if .item.type == "command_execution" then
+                "cmd " + (.item.status // "completed")
+                + ": " + ((.item.command_for_display // .item.command // "") | trunc(80))
+            elif .item.type == "agent_message" then
+                "agent: " + ((.item.text // "") | trunc(100))
+            elif .item.type == "reasoning" then
+                "reasoning: " + ((.item.text // "") | trunc(100))
+            elif .item.type == "mcp_tool_call" then
+                "tool " + (.item.status // "completed")
+                + ": " + (.item.tool // .item.server // "mcp_tool")
+                + (if (.item.error.message // "") != "" then " (" + (.item.error.message | trunc(80)) + ")" else "" end)
+            else
+                (.item.type // "item") + " " + (.item.status // "completed")
+            end
+        elif .type == "turn.completed" then
+            "turn completed"
+        elif .type == "turn.failed" then
+            "turn failed: " + ((.error.message // "") | trunc(100))
+        elif .type == "error" then
+            "error: " + ((.error.message // .message // "") | trunc(100))
+        else
+            (.type // "event")
+        end
+    ' 2>/dev/null || true)
+
+    if [[ -n "$formatted" && "$formatted" != "null" ]]; then
+        echo "$formatted"
+    else
+        echo "$raw_event" | head -c 100
+    fi
+}
+
 # Update status JSON for external monitoring
 update_status() {
     local loop_count=$1
@@ -1376,7 +1433,7 @@ execute_codex_code() {
         # Get last line from output if available
         local last_line=""
         if [[ -f "$jsonl_file" && -s "$jsonl_file" ]]; then
-            last_line=$(tail -1 "$jsonl_file" 2>/dev/null | head -c 80)
+            last_line=$(format_codex_progress_from_event "$jsonl_file")
             cp "$jsonl_file" "$LIVE_LOG_FILE" 2>/dev/null
         fi
 
