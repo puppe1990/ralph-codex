@@ -764,6 +764,148 @@ percent_remaining_from_used() {
     awk -v used="$used_percent" 'BEGIN {rem=100-used; if (rem < 0) rem=0; if (rem > 100) rem=100; printf "%.0f", rem}'
 }
 
+json_number_or_null() {
+    local value=$1
+    if is_valid_numeric "$value"; then
+        echo "$value"
+    else
+        echo "null"
+    fi
+}
+
+quota_status_from_remaining() {
+    local remaining=$1
+    if ! is_valid_numeric "$remaining"; then
+        echo "unknown"
+        return 0
+    fi
+
+    local remaining_int
+    remaining_int=$(awk -v x="$remaining" 'BEGIN { printf "%.0f", x }')
+    if [[ "$remaining_int" -le 0 ]]; then
+        echo "limited"
+    elif [[ "$remaining_int" -le 10 ]]; then
+        echo "warning"
+    else
+        echo "ok"
+    fi
+}
+
+format_local_time_from_epoch() {
+    local epoch=$1
+    if ! [[ "$epoch" =~ ^[0-9]+$ ]] || [[ "$epoch" -le 0 ]]; then
+        echo ""
+        return 0
+    fi
+
+    local label=""
+    if label=$(date -r "$epoch" '+%b %d, %I:%M %p' 2>/dev/null); then
+        echo "$label"
+        return 0
+    fi
+    if label=$(date -d "@$epoch" '+%b %d, %I:%M %p' 2>/dev/null); then
+        echo "$label"
+        return 0
+    fi
+    echo ""
+}
+
+snapshot_get_value() {
+    local key=$1
+    local file=${2:-"$CODEX_STATUS_SNAPSHOT_FILE"}
+    [[ -f "$file" ]] || return 1
+    grep -E "^${key}=" "$file" 2>/dev/null | tail -1 | cut -d'=' -f2-
+}
+
+compute_api_limit_wait_seconds() {
+    local default_minutes=${1:-60}
+    if ! [[ "$default_minutes" =~ ^[0-9]+$ ]] || [[ "$default_minutes" -le 0 ]]; then
+        default_minutes=60
+    fi
+
+    local default_seconds=$((default_minutes * 60))
+    local now_epoch reset_epoch
+    now_epoch=$(get_now_epoch)
+
+    refresh_codex_status_snapshot_if_due true || true
+    reset_epoch=$(snapshot_get_value "5h_resets_at" "$CODEX_STATUS_SNAPSHOT_FILE" || echo "")
+    if [[ "$reset_epoch" =~ ^[0-9]+$ ]] && [[ "$reset_epoch" -gt "$now_epoch" ]]; then
+        local until_reset=$((reset_epoch - now_epoch))
+        if [[ "$until_reset" -gt 0 ]]; then
+            echo "$until_reset"
+            return 0
+        fi
+    fi
+
+    echo "$default_seconds"
+}
+
+build_effective_quota_json() {
+    local source="none"
+    local captured_at_epoch=0
+    local five_remaining="" five_used="" five_reset=""
+    local weekly_remaining="" weekly_used="" weekly_reset=""
+
+    if [[ -f "$CODEX_STATUS_SNAPSHOT_FILE" ]]; then
+        five_remaining=$(snapshot_get_value "5h_remaining_percent" "$CODEX_STATUS_SNAPSHOT_FILE" || echo "")
+        five_used=$(snapshot_get_value "5h_used_percent" "$CODEX_STATUS_SNAPSHOT_FILE" || echo "")
+        five_reset=$(snapshot_get_value "5h_resets_at" "$CODEX_STATUS_SNAPSHOT_FILE" || echo "")
+        weekly_remaining=$(snapshot_get_value "weekly_remaining_percent" "$CODEX_STATUS_SNAPSHOT_FILE" || echo "")
+        weekly_used=$(snapshot_get_value "weekly_used_percent" "$CODEX_STATUS_SNAPSHOT_FILE" || echo "")
+        weekly_reset=$(snapshot_get_value "weekly_resets_at" "$CODEX_STATUS_SNAPSHOT_FILE" || echo "")
+        captured_at_epoch=$(get_file_mtime_epoch "$CODEX_STATUS_SNAPSHOT_FILE")
+        if is_valid_numeric "$five_remaining" || is_valid_numeric "$weekly_remaining"; then
+            source="codex_status_snapshot"
+        fi
+    fi
+
+    if [[ "$source" == "none" ]] && [[ "$API_LIMIT_PAUSED" == "true" ]] && [[ "$API_LIMIT_WAIT_RETRY_AT_EPOCH" -gt 0 ]]; then
+        source="api_limit_pause"
+        five_remaining=0
+        five_used=100
+        five_reset="$API_LIMIT_WAIT_RETRY_AT_EPOCH"
+    fi
+
+    local five_status weekly_status
+    five_status=$(quota_status_from_remaining "$five_remaining")
+    weekly_status=$(quota_status_from_remaining "$weekly_remaining")
+    local five_reset_label weekly_reset_label
+    five_reset_label=$(format_local_time_from_epoch "$five_reset")
+    weekly_reset_label=$(format_local_time_from_epoch "$weekly_reset")
+
+    jq -cn \
+        --arg source "$source" \
+        --arg five_status "$five_status" \
+        --arg weekly_status "$weekly_status" \
+        --arg five_reset_label "$five_reset_label" \
+        --arg weekly_reset_label "$weekly_reset_label" \
+        --argjson captured_at_epoch "$(json_number_or_null "$captured_at_epoch")" \
+        --argjson five_remaining "$(json_number_or_null "$five_remaining")" \
+        --argjson five_used "$(json_number_or_null "$five_used")" \
+        --argjson five_reset "$(json_number_or_null "$five_reset")" \
+        --argjson weekly_remaining "$(json_number_or_null "$weekly_remaining")" \
+        --argjson weekly_used "$(json_number_or_null "$weekly_used")" \
+        --argjson weekly_reset "$(json_number_or_null "$weekly_reset")" \
+        '{
+            source: $source,
+            captured_at_epoch: $captured_at_epoch,
+            five_hour: {
+                status: $five_status,
+                remaining_percent: $five_remaining,
+                used_percent: $five_used,
+                resets_at_epoch: $five_reset,
+                reset_label_local: $five_reset_label
+            },
+            weekly: {
+                status: $weekly_status,
+                remaining_percent: $weekly_remaining,
+                used_percent: $weekly_used,
+                resets_at_epoch: $weekly_reset,
+                reset_label_local: $weekly_reset_label
+            }
+        }'
+}
+
 refresh_codex_status_snapshot() {
     if ! command -v jq >/dev/null 2>&1; then
         return 1
@@ -891,6 +1033,11 @@ update_status() {
         api_limit_paused_json=true
     fi
 
+    local codex_quota_effective_json='{"source":"none","five_hour":{"status":"unknown"},"weekly":{"status":"unknown"}}'
+    if command -v jq >/dev/null 2>&1; then
+        codex_quota_effective_json=$(build_effective_quota_json 2>/dev/null || echo "$codex_quota_effective_json")
+    fi
+
     cat > "$STATUS_FILE" << STATUSEOF
 {
     "timestamp": "$(get_iso_timestamp)",
@@ -911,6 +1058,7 @@ update_status() {
     "codex_quota_snapshot_file": "$CODEX_STATUS_SNAPSHOT_FILE",
     "codex_quota_refresh_interval_seconds": $CODEX_STATUS_REFRESH_INTERVAL_SECONDS,
     "codex_quota_last_refresh_epoch": $codex_quota_last_refresh_epoch,
+    "codex_quota_effective": $codex_quota_effective_json,
     "api_limit_paused": $api_limit_paused_json,
     "api_limit_wait_started_epoch": $API_LIMIT_WAIT_STARTED_EPOCH,
     "api_limit_wait_retry_at_epoch": $API_LIMIT_WAIT_RETRY_AT_EPOCH,
@@ -980,14 +1128,20 @@ wait_for_reset() {
 }
 
 wait_for_api_limit_retry() {
-    local wait_minutes=${1:-60}
-    if ! [[ "$wait_minutes" =~ ^[0-9]+$ ]] || [[ "$wait_minutes" -le 0 ]]; then
-        wait_minutes=60
+    local wait_seconds=${1:-3600}
+    if ! [[ "$wait_seconds" =~ ^[0-9]+$ ]] || [[ "$wait_seconds" -le 0 ]]; then
+        wait_seconds=3600
     fi
 
-    local wait_seconds=$((wait_minutes * 60))
-    log_status "WARN" "API usage limit reached. Auto-wait enabled, retrying in ${wait_minutes} minute(s)."
+    local wait_minutes=$(((wait_seconds + 59) / 60))
     set_api_limit_pause_state "$wait_seconds"
+    local retry_at_label
+    retry_at_label=$(format_local_time_from_epoch "$API_LIMIT_WAIT_RETRY_AT_EPOCH")
+    if [[ -n "$retry_at_label" ]]; then
+        log_status "WARN" "API usage limit reached. Auto-wait enabled, retrying in ~${wait_minutes} minute(s) at ${retry_at_label}."
+    else
+        log_status "WARN" "API usage limit reached. Auto-wait enabled, retrying in ~${wait_minutes} minute(s)."
+    fi
 
     while [[ $wait_seconds -gt 0 ]]; do
         update_api_limit_pause_remaining "$wait_seconds"
@@ -1841,6 +1995,7 @@ execute_codex_code() {
 
     # Execute Codex CLI
     local exit_code=0
+    CODEX_ACTIVE_PID=0
 
     # Initialize live.log for this execution
     echo -e "\n\n=== Loop #$loop_count - $(date '+%Y-%m-%d %H:%M:%S') ===" > "$LIVE_LOG_FILE"
@@ -1855,6 +2010,7 @@ execute_codex_code() {
 
     # Get PID and monitor progress
     local codex_pid=$!
+    CODEX_ACTIVE_PID=$codex_pid
     local progress_counter=0
 
     # Show progress while Codex is running
@@ -1906,6 +2062,7 @@ EOF
     else
         exit_code=$?
     fi
+    CODEX_ACTIVE_PID=0
 
     # Convert Codex JSONL output to plain assistant message text for analyzer
     if [[ -f "$jsonl_file" && -s "$jsonl_file" ]]; then
@@ -2054,6 +2211,7 @@ execute_claude_code() {
 # Cleanup function
 cleanup() {
     log_status "INFO" "Ralph loop interrupted. Cleaning up..."
+    terminate_active_codex_processes
     reset_session "manual_interrupt"
     update_status "$loop_count" "$(cat "$CALL_COUNT_FILE" 2>/dev/null || echo "0")" "interrupted" "stopped"
     release_instance_lock
@@ -2066,6 +2224,38 @@ trap release_instance_lock EXIT
 
 # Global variable for loop count (needed by cleanup function)
 loop_count=0
+CODEX_ACTIVE_PID=0
+
+kill_process_tree_recursive() {
+    local root_pid=$1
+    [[ -z "$root_pid" ]] && return 0
+    [[ "$root_pid" =~ ^[0-9]+$ ]] || return 0
+
+    local child_pid
+    while IFS= read -r child_pid; do
+        [[ -n "$child_pid" ]] || continue
+        kill_process_tree_recursive "$child_pid"
+    done < <(pgrep -P "$root_pid" 2>/dev/null || true)
+
+    kill -TERM "$root_pid" 2>/dev/null || true
+}
+
+terminate_active_codex_processes() {
+    if [[ -z "$CODEX_ACTIVE_PID" ]] || [[ "$CODEX_ACTIVE_PID" -le 0 ]]; then
+        return 0
+    fi
+
+    if kill -0 "$CODEX_ACTIVE_PID" 2>/dev/null; then
+        log_status "WARN" "Terminating active Codex process tree (PID $CODEX_ACTIVE_PID)"
+        kill_process_tree_recursive "$CODEX_ACTIVE_PID"
+        sleep 1
+        if kill -0 "$CODEX_ACTIVE_PID" 2>/dev/null; then
+            kill -KILL "$CODEX_ACTIVE_PID" 2>/dev/null || true
+        fi
+    fi
+
+    CODEX_ACTIVE_PID=0
+}
 
 # Main loop
 main() {
@@ -2226,17 +2416,16 @@ main() {
         elif [ $exec_result -eq 2 ]; then
             # API 5-hour limit reached - handle specially
             local wait_minutes=${CODEX_API_LIMIT_WAIT_MINUTES:-60}
-            if ! [[ "$wait_minutes" =~ ^[0-9]+$ ]] || [[ "$wait_minutes" -le 0 ]]; then
-                wait_minutes=60
-            fi
-            set_api_limit_pause_state $((wait_minutes * 60))
-            update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused"
+            local wait_seconds
+            wait_seconds=$(compute_api_limit_wait_seconds "$wait_minutes")
             log_status "WARN" "🛑 API usage limit reached!"
 
             if [[ "$CODEX_AUTO_WAIT_ON_API_LIMIT" == "true" ]]; then
-                wait_for_api_limit_retry "$wait_minutes"
+                wait_for_api_limit_retry "$wait_seconds"
             else
                 log_status "INFO" "Auto-wait on API limit is disabled. Exiting loop."
+                set_api_limit_pause_state "$wait_seconds"
+                update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit" "paused" "api_5hour_limit"
                 clear_api_limit_pause_state
                 update_status "$loop_count" "$(cat "$CALL_COUNT_FILE")" "api_limit_exit" "stopped" "api_5hour_limit"
                 break

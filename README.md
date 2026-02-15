@@ -465,8 +465,9 @@ ralph --auto-reset-circuit
 When Codex CLI usage usage limit is reached, Ralph:
 1. Detects the limit error automatically
 2. Sets loop status to `paused` and starts countdown wait
-3. Retries automatically after the wait window
-4. Prevents endless fast-retry loops that waste calls
+3. Uses Codex snapshot reset epoch (`5h_resets_at`) when available to wait until the real reset time
+4. Retries automatically after the wait window
+5. Prevents endless fast-retry loops that waste calls
 
 Configurable behavior:
 ```bash
@@ -477,6 +478,9 @@ CODEX_API_LIMIT_WAIT_MINUTES=60
 # optional: disable auto-wait and stop loop on limit
 CODEX_AUTO_WAIT_ON_API_LIMIT=false
 ```
+
+`status.json` now includes `codex_quota_effective` as the canonical quota payload
+(`source`, `five_hour`, `weekly`) for dashboards/automation, reducing parser drift between logs/UI.
 
 ### Custom Prompts
 

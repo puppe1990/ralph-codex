@@ -632,12 +632,30 @@ EOF
     [[ "$output" == *'"loop_elapsed_hms"'* ]]
 }
 
+@test "update_status includes canonical codex_quota_effective payload" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run bash -c "sed -n '/update_status()/,/^}/p' '$script'"
+    assert_success
+    [[ "$output" == *'"codex_quota_effective"'* ]]
+}
+
 @test "execute_codex_code progress payload includes loop_count" {
     local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
 
     run grep -n '"loop_count": \$loop_count' "$script"
     assert_success
     [[ "$output" == *'"loop_count": $loop_count'* ]]
+}
+
+@test "cleanup terminates active Codex process tree to avoid orphan exec processes" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n "CODEX_ACTIVE_PID\\|terminate_active_codex_processes\\|kill_process_tree_recursive\\|cleanup()" "$script"
+    assert_success
+    [[ "$output" == *"CODEX_ACTIVE_PID"* ]]
+    [[ "$output" == *"terminate_active_codex_processes"* ]]
+    [[ "$output" == *"kill_process_tree_recursive"* ]]
 }
 
 @test "API limit path uses automatic wait-and-retry by default" {
@@ -648,6 +666,15 @@ EOF
     [[ "$output" == *"CODEX_AUTO_WAIT_ON_API_LIMIT"* ]]
     [[ "$output" == *"CODEX_API_LIMIT_WAIT_MINUTES"* ]]
     [[ "$output" == *"wait_for_api_limit_retry"* ]]
+}
+
+@test "API limit retry wait prefers snapshot reset epoch when available" {
+    local script="${BATS_TEST_DIRNAME}/../../ralph_loop.sh"
+
+    run grep -n "compute_api_limit_wait_seconds\\|snapshot_get_value \"5h_resets_at\"" "$script"
+    assert_success
+    [[ "$output" == *"compute_api_limit_wait_seconds"* ]]
+    [[ "$output" == *'snapshot_get_value "5h_resets_at"'* ]]
 }
 
 # =============================================================================

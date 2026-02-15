@@ -238,6 +238,15 @@ fi
 | Functions | snake_case | `get_circuit_state()` |
 | Local variables | snake_case | `local loop_count=0` |
 | Constants | UPPER_SNAKE_CASE | `MAX_CALLS_PER_HOUR` |
+
+### Status Telemetry Contract
+
+When changing runtime/status behavior, keep `.ralph/status.json` backward compatible and update consumers/tests.
+
+Minimum required fields include:
+- loop/timer telemetry (`current_loop`, `total_loops_executed`, `session_elapsed_*`, `loop_elapsed_*`)
+- API limit pause telemetry (`api_limit_paused`, `api_limit_wait_*`)
+- canonical quota payload (`codex_quota_effective`) used by UI/diagnostics
 | File names | snake_case.sh | `circuit_breaker.sh` |
 | Control files | snake_case.md | `fix_plan.md`, `AGENT.md` |
 

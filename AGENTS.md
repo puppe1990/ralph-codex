@@ -57,10 +57,12 @@ Compatibility no-op keys (kept only for older configs):
 - Monitor mode should auto-close its tmux session when the main loop pane exits.
 - Circuit breaker opens on stagnation/repeated errors/permission-denial patterns.
 - API usage-limit pauses should auto-wait and retry by default (no interactive prompt).
+- API usage-limit waits should prefer real reset epochs from Codex snapshot data (`5h_resets_at`) before fallback minutes.
 - Permission failures should guide users to sandbox/approval configuration first.
 - Real implementation progress is scoped to changes under `src/` or `tests/`; `.ralph/*` docs-only edits should not count as code progress.
 - Enable/setup/bootstrap commands must update project `.gitignore` to hide Ralph runtime artifacts (logs, session/counter state, status/progress JSON files).
 - Status telemetry must include loop/timer fields consumed by monitor tooling: `current_loop`, `total_loops_executed`, `session_elapsed_seconds|hms`, and `loop_elapsed_seconds|hms`.
+- Status telemetry must include canonical quota telemetry in `codex_quota_effective` (`source`, `five_hour`, `weekly`) to avoid UI/log parser divergence.
 
 ## Development Commands
 
